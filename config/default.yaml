@@ -1,0 +1,80 @@
+global:
+  Fs: 80e9
+  UI: 2.5e-11
+  duration: 1e-6
+  seed: 12345
+
+wave:
+  type: PRBS31
+  poly: "x^31 + x^28 + 1"
+  init: "0x7FFFFFFF"
+  jitter:
+    RJ_sigma: 5e-13
+    SJ_freq: [5e6]
+    SJ_pp: [2e-12]
+  modulation:
+    AM: 0.1
+    PM: 0.01
+
+tx:
+  ffe_taps: [0.2, 0.6, 0.2]
+  mux_lane: 0
+  driver:
+    swing: 0.8
+    bw: 20e9
+    nonlinear:
+      sat: 1.0
+
+channel:
+  touchstone: "chan_4port.s4p"
+  ports: 2
+  crosstalk: true
+  bidirectional: true
+  simple_model:
+    attenuation_db: 10.0
+    bandwidth_hz: 20e9
+
+rx:
+  ctle:
+    zeros: [2e9]
+    poles: [30e9]
+    dc_gain: 1.5
+    offset_enable: false
+    noise_enable: false
+  vga:
+    gain: 4.0
+    agc_enable: false
+  sampler:
+    threshold: 0.0
+    hysteresis: 0.02
+  dfe:
+    taps: [-0.05, -0.02, 0.01]
+    update: "sign-lms"
+    mu: 1e-4
+
+cdr:
+  pi:
+    kp: 0.01
+    ki: 1e-4
+  pai:
+    resolution: 1e-12
+    range: 5e-11
+
+clock:
+  type: PLL
+  frequency: 40e9
+  pd: "tri-state"
+  cp:
+    I: 5e-5
+  lf:
+    R: 10000
+    C: 1e-10
+  vco:
+    Kvco: 1e8
+    f0: 1e10
+  divider: 4
+
+eye:
+  ui_bins: 128
+  amp_bins: 128
+  measure_length: 1e-4

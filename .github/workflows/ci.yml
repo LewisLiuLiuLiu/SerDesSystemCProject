@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        brew install cmake
+    
+    - name: Cache SystemC
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/systemc
+        key: ${{ runner.os }}-systemc-2.3.4
+    
+    - name: Build SystemC (if not cached)
+      run: |
+        if [ ! -d "$HOME/.cache/systemc" ]; then
+          mkdir -p $HOME/.cache
+          # Note: In real scenario, download and build SystemC here
+          echo "SystemC would be built here"
+        fi
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSYSTEMC_HOME=$HOME/.cache/systemc \
+          -DSYSTEMC_AMS_HOME=$HOME/.cache/systemc-ams
+    
+    - name: Build
+      run: cmake --build build
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure
+
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build
+      run: cmake --build build
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure

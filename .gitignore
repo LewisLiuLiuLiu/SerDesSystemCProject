@@ -1,23 +1,46 @@
-# macOS
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.out
+*.exe
+
+# IDE configurations
+.qoder/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
 .DS_Store
-.AppleDouble
-.LSOverride
+Thumbs.db
 
-# Thumbnails
-._*
+# Simulation outputs
+*.log
+*.dat
+*.vcd
+*.wdb
 
-# Files that might appear in the root of a volume
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
+# Cache directories
+.cache/
 
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile.cmake
+*.cmake
+!CMakeLists.txt
+
+# Test reports
+*.xml
+*.html
+coverage/
+
+# Temporary files
+tmp/
+temp/
