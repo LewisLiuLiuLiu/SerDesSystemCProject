@@ -39,8 +39,28 @@ rx:
     zeros: [2e9]
     poles: [30e9]
     dc_gain: 1.5
+    vcm_out: 0.6
     offset_enable: false
+    vos: 0.0
     noise_enable: false
+    vnoise_sigma: 0.0
+    sat_min: -0.5
+    sat_max: 0.5
+    psrr:
+      enable: false
+      gain: 0.0
+      zeros: []
+      poles: []
+      vdd_nom: 1.0
+    cmfb:
+      enable: false
+      bandwidth: 1e6
+      loop_gain: 1.0
+    cmrr:
+      enable: false
+      gain: 0.0
+      zeros: []
+      poles: []
   vga:
     gain: 4.0
     agc_enable: false

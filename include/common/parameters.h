@@ -108,18 +108,75 @@ struct ChannelParams {
 // RX Parameters
 // ============================================================================
 struct RxCtleParams {
+    // Main transfer function
     std::vector<double> zeros;       // Zero frequencies (Hz)
     std::vector<double> poles;       // Pole frequencies (Hz)
-    double dc_gain;                  // DC gain
+    double dc_gain;                  // DC gain (linear)
+    
+    // Common mode output voltage
+    double vcm_out;                  // Differential output common mode voltage (V)
+    
+    // Offset
     bool offset_enable;              // Offset enable
+    double vos;                      // Input offset voltage (V)
+    
+    // Noise
     bool noise_enable;               // Noise enable
+    double vnoise_sigma;             // Noise standard deviation (V)
+    
+    // Saturation
+    double sat_min;                  // Output minimum voltage (V)
+    double sat_max;                  // Output maximum voltage (V)
+    
+    // PSRR (Power Supply Rejection Ratio)
+    struct PsrrParams {
+        bool enable;
+        double gain;                 // PSRR path gain (linear)
+        std::vector<double> zeros;   // Hz
+        std::vector<double> poles;   // Hz
+        double vdd_nom;              // Nominal supply voltage (V)
+        
+        PsrrParams()
+            : enable(false)
+            , gain(0.0)
+            , vdd_nom(1.0) {}
+    } psrr;
+    
+    // CMFB (Common Mode Feedback)
+    struct CmfbParams {
+        bool enable;
+        double bandwidth;            // Loop bandwidth (Hz)
+        double loop_gain;            // Loop gain (linear)
+        
+        CmfbParams()
+            : enable(false)
+            , bandwidth(1e6)
+            , loop_gain(1.0) {}
+    } cmfb;
+    
+    // CMRR (Common Mode Rejection Ratio)
+    struct CmrrParams {
+        bool enable;
+        double gain;                 // CM->DIFF leakage gain (linear)
+        std::vector<double> zeros;   // Hz
+        std::vector<double> poles;   // Hz
+        
+        CmrrParams()
+            : enable(false)
+            , gain(0.0) {}
+    } cmrr;
     
     RxCtleParams()
         : zeros({2e9})
         , poles({30e9})
         , dc_gain(1.5)
+        , vcm_out(0.6)
         , offset_enable(false)
-        , noise_enable(false) {}
+        , vos(0.0)
+        , noise_enable(false)
+        , vnoise_sigma(0.0)
+        , sat_min(-0.5)
+        , sat_max(0.5) {}
 };
 
 struct RxVgaParams {
