@@ -12,11 +12,14 @@ public:
     ~ConfigLoader() = default;
     
     // Load configuration from file (JSON or YAML)
-    bool loadFromFile(const std::string& filepath, SystemParams& params);
+    static bool loadFromFile(const std::string& filepath, SystemParams& params);
+    
+    // Load default configuration
+    static SystemParams load_default();
     
 private:
-    bool loadJSON(const std::string& filepath, SystemParams& params);
-    bool loadYAML(const std::string& filepath, SystemParams& params);
+    static bool loadJSON(const std::string& filepath, SystemParams& params);
+    static bool loadYAML(const std::string& filepath, SystemParams& params);
 };
 
 } // namespace serdes

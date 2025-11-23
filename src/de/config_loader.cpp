@@ -5,7 +5,7 @@
 namespace serdes {
 
 bool ConfigLoader::loadFromFile(const std::string& filepath, SystemParams& params) {
-    // Detect file format by extension
+    // 检测文件格式
     if (filepath.find(".json") != std::string::npos) {
         return loadJSON(filepath, params);
     } else if (filepath.find(".yaml") != std::string::npos || filepath.find(".yml") != std::string::npos) {
@@ -17,17 +17,74 @@ bool ConfigLoader::loadFromFile(const std::string& filepath, SystemParams& param
 }
 
 bool ConfigLoader::loadJSON(const std::string& filepath, SystemParams& params) {
-    // TODO: Implement JSON loading using nlohmann/json
+    // TODO: 实现 JSON 解析
+    // 目前使用默认配置
     std::cout << "Loading JSON config from: " << filepath << std::endl;
-    // For now, use default parameters
+    params = load_default();
     return true;
 }
 
 bool ConfigLoader::loadYAML(const std::string& filepath, SystemParams& params) {
-    // TODO: Implement YAML loading using yaml-cpp
+    // TODO: 实现 YAML 解析
+    // 目前使用默认配置
     std::cout << "Loading YAML config from: " << filepath << std::endl;
-    // For now, use default parameters
+    params = load_default();
     return true;
+}
+
+SystemParams ConfigLoader::load_default() {
+    SystemParams params;
+    
+    // Global parameters
+    params.global.Fs = 80e9;         // 80 GHz sampling rate
+    params.global.UI = 2.5e-11;      // 25 ps unit interval (40 Gbps)
+    params.global.duration = 1e-6;   // 1 us simulation
+    params.global.seed = 12345;
+    
+    // Wave generation
+    params.wave.type = PRBSType::PRBS31;
+    params.wave.poly = "x^31 + x^28 + 1";
+    params.wave.init = "0x7FFFFFFF";
+    params.wave.jitter.RJ_sigma = 0.0;  // No jitter by default
+    
+    // TX FFE
+    params.tx.ffe.taps = {-0.1, 1.0, -0.1};  // 3-tap FFE
+    
+    // TX Driver
+    params.tx.driver.swing = 0.8;    // 800 mV
+    params.tx.driver.bw = 20e9;      // 20 GHz
+    params.tx.driver.sat = 1.0;      // 1 V saturation
+    
+    // Channel
+    params.channel.attenuation_db = 10.0;  // 10 dB loss
+    params.channel.bandwidth_hz = 20e9;    // 20 GHz bandwidth
+    
+    // RX CTLE
+    params.rx.ctle.zeros = {2e9};      // 2 GHz zero
+    params.rx.ctle.poles = {30e9};     // 30 GHz pole
+    params.rx.ctle.dc_gain = 1.5;
+    
+    // RX VGA
+    params.rx.vga.gain = 4.0;
+    
+    // RX Sampler  
+    params.rx.sampler.threshold = 0.0;
+    params.rx.sampler.hysteresis = 0.02;
+    
+    // RX DFE
+    params.rx.dfe.taps = {-0.05, -0.02, 0.01};
+    
+    // CDR
+    params.cdr.pi.kp = 0.05;
+    params.cdr.pi.ki = 0.001;
+    params.cdr.pai.resolution = 1e-12;
+    params.cdr.pai.range = 5e-11;
+    
+    // Clock
+    params.clock.type = ClockType::IDEAL;
+    params.clock.frequency = 40e9;  // 40 GHz
+    
+    return params;
 }
 
 } // namespace serdes

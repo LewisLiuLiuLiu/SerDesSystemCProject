@@ -3,6 +3,7 @@
 
 #include <systemc-ams>
 #include "common/parameters.h"
+#include <random>
 
 namespace serdes {
 
@@ -20,6 +21,7 @@ private:
     unsigned int m_lfsr_state;
     double m_sample_rate;
     double m_time;
+    std::mt19937 m_rng;  // 随机数生成器（用于抖动）
 };
 
 } // namespace serdes
