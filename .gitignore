@@ -63,3 +63,10 @@ scripts/verify_docs.py
 scripts/__pycache__/
 *.pyc
 *.pyo
+
+# Agent session files
+init.sh
+qodercli-progress.txt
+feature_list.json
+serdes-doc-writer.md
+AGENTS.md
