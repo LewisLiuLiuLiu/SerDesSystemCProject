@@ -111,7 +111,7 @@
 - 实现：收集多 UI 周期样本，构建二维密度（时间相位 vs 电平）；RJ/DJ 分离可用统计/谱域方法。
 - 输入/输出：读取 `results.dat` 或波形数组，输出 `eye_metrics.json` 或图像/CSV；由 Python 实现，不参与 AMS 域类建模。
 
-### 8) Adoption（SystemC DE 域）
+### 8) Adaption（SystemC DE 域）
 - 职责：承载信号处理算法（AGC、DFE 抽头更新、CDR PI 策略、阈值自适应等），以 DE 计算与 TDF 交互。
 - 接口桥接：使用 `sca_de::sca_in/out` 与 TDF 域信号相连；周期性/事件驱动更新参数。
 
