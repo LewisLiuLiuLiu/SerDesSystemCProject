@@ -1,226 +1,589 @@
-# DFE Summer 模块小文档
+# DFE Summer 模块技术文档
 
-级别：AMS 子模块（RX）
+**级别**：AMS 子模块（RX）  
+**类名**：`RxDfeSummerTdf`  
+**当前版本**：v0.5 (2025-12-21)  
+**状态**：开发中
 
-## 概述
-DFE Summer（判决反馈均衡求和器）位于 RX 接收链的 CTLE/VGA 之后、Sampler 之前，作用是将主路径的差分信号与“基于历史判决比特生成的反馈信号”进行求和（通常为相减），从而抵消后游符号间干扰（post‑cursor ISI），增大眼图开度并降低误码率。
+---
 
-核心原则：
-- 反馈至少延迟 1 UI（使用 b[n−1], b[n−2], …），避免零延迟代数环。
-- tap_coeffs（tap 的系数）为各后游系数；init_bits 用于启动阶段预填充历史比特，保证反馈寄存器有定义的初值。
-- 当 tap_coeffs 全为 0 时，DFE summer 等效为直通（v_fb=0），不会引入环路或改变主路径输出。
+## 1. 概述
 
-应用场景：高速串行链路（SERDES）RX 端的后游 ISI 取消，与 Sampler/CDR/Adaption 联合工作。
-## 接口
-- 端口（TDF）：
-  - 输入：`sca_tdf::sca_in<double> in_p`, `sca_tdf::sca_in<double> in_n`（主路径差分）
-  - 输入：`sca_tdf::sca_in<std::vector<int>> data_in`（历史判决数据数组）
-    - 作用：保存采样时刻之前的历史判决比特序列，用于计算 DFE 反馈补偿。
-    - 数组长度：由 `tap_coeffs` 的长度（即配置的 tap 数量 N）决定。
-    - 数组内容：`data_in[0]` 为最近一次判决 b[n−1]，`data_in[1]` 为 b[n−2]，...，`data_in[N−1]` 为 b[n−N]。
-    - 数据来源：通常由 Sampler 或 RX 顶层模块维护并更新，每个 UI 周期移位插入新的判决结果。
-    - 类型说明：若 Sampler 在 DE 域输出，可通过 DE→TDF 桥接转换；或直接使用 TDF 域的判决结果（0/1 整数）。
-  - 输出：`sca_tdf::sca_out<double> out_p`, `sca_tdf::sca_out<double> out_n`（均衡后的差分输出）
-  
-- 参数更新端口（DE→TDF 桥接）：
-  - 输入：`sca_tdf::sca_de::sca_in<std::vector<double>> tap_coeffs_de`
-    - 作用：接收来自 Adaption 模块的 DFE 抽头系数数组（对应 `adaption.md` 中的 `dfe_taps`）。
-    - 生效时序：DE 域写入 `dfe_taps` 后，在下一 TDF 采样周期由本模块读取并更新内部 `tap_coeffs`。
-    - 长度约束：与 `tap_coeffs` 初始配置长度一致，若长度不匹配应报错或截断/填充处理。
-  - （可选）若采用标量端口形式：
-    - 输入：`sca_tdf::sca_de::sca_in<double> tap1_de / tap2_de / ...`
-    - 作用：与 `dfe_tap1/tap2/...` 一一对应，由上层 SystemC 连接进行组装。
-- 配置键：
-  - `tap_coeffs`（[double]）：后游 tap 的初始系数列表，按 k=1…N 顺序。
-    - 作用：定义 DFE 的抽头数量（N = tap_coeffs.size()）和初始系数值。
-    - 长度约束：`tap_coeffs` 的长度 N 决定了 `data_in` 数组的必需长度（也为 N）。
-    - 动态更新：
-      - 当 Adaption 未启用或未连接 `dfe_taps` 时，本模块始终使用此静态系数。
-      - 当 Adaption 启用且通过 DE→TDF 端口提供 `dfe_taps` 时，运行时系数由 Adaption 输出接管，`tap_coeffs` 仅作为初始值，但 **tap 数量 N 保持不变**。
-  - `tap_count`（int，只读/派生）：抽头数量，等于 `tap_coeffs.size()`。
-    - 说明：该参数由 `tap_coeffs` 自动派生，用于明确指示所需的历史判决数据数量。
-    - 典型值：3-9（根据信道 ISI 特性和复杂度权衡）。
-  - `ui`（double，秒）：单位间隔，用于 TDF 步长与反馈更新节拍
-  - `vcm_out`（double，V）：差分输出共模电压
-  - `vtap`（double）：比特映射后的反馈电压缩放（单位与 CTLE/VGA 输出匹配）
-  - `map_mode`（string）：比特映射模式，`"pm1"`（0→−1，1→+1）或 `"01"`（0→0，1→1）
-  - `sat_min`/`sat_max`（double，V，可选）：输出限幅范围（软/硬限制）
-  - `init_bits`（[double]，可选）：历史比特初始化值（长度**必须**与 `tap_coeffs.size()` 一致）
-  - `enable`（bool）：模块使能，默认 true（关闭时直通）
-## 参数
-- `tap_coeffs`：默认 `[]` 或 `[0,...,0]`（空数组表示无 DFE，0 数组表示直通）。
-  - 当所有系数为 0（且未连接 Adaption）时，DFE summer 等效直通。
-  - 启用 Adaption 且连接 `dfe_taps` 时，直通/均衡状态由 Adaption 输出的系数决定（例如 Adaption 输出全 0 抽头）。
-  - 长度范围：典型 3-9，由系统配置根据信道特性决定。空数组时 `data_in` 不使用（或长度为 0）。
-- `tap_count`（派生）：等于 `tap_coeffs.size()`，决定 `data_in` 数组的长度需求。
-- `ui`：默认 `2.5e-11`（秒），与系统 UI 保持一致
-- `vcm_out`：默认 `0.0`（V），与前级输出共模一致更为稳定
-- `vtap`：默认 `1.0`（线性倍数），用于把比特映射量级匹配到主路径幅度
-- `map_mode`：默认 `"pm1"`（推荐，抗直流偏置更稳健）
-- `sat_min/sat_max`：默认不限制；如需，建议设置为物理输出范围以抑制过补偿与噪声放大
-- `init_bits`：默认按 `tap_coeffs.size()` 填充为 0（在 `pm1` 映射下表示"无反馈"）；也可用训练序列对应的 ±1 预填充。
-  - **长度约束**：必须等于 `tap_coeffs.size()`，否则模块初始化时应报错或自动截断/填充。
-- `enable`：默认 true；当 false 时，输出为主路径直通
+DFE Summer（判决反馈均衡求和器）位于 RX 接收链的 CTLE/VGA 之后、Sampler 之前，是实现判决反馈均衡（Decision Feedback Equalization）的核心模块。其主要功能是将主路径的差分信号与基于历史判决比特生成的反馈信号进行求和（减法），从而抵消后游符号间干扰（post-cursor ISI），增大眼图开度并降低误码率。
 
-单位与映射约定：
-- `map_mode="pm1"` 时，0/1 → −1/+1；`vtap` 把 ±1 转换到伏特等效幅度
-- `map_mode="01"` 时，0/1 → 0/1；`vtap` 把 0/1 转换到目标幅度
-## 行为模型
-1. 差分输入：`v_main = in_p - in_n`
+### 1.1 设计原理
 
-2. 历史判决数据获取与反馈计算：
-   - **输入验证**：
-     - 读取 `data_in` 数组，长度必须等于 N（`tap_coeffs.size()`）。
-     - 若长度不匹配，应报错或自动截断/零填充（具体策略由实现决定）。
-   - **反馈电压计算**：
-     - 对于每个 UI，使用 `data_in` 中的历史判决数据计算反馈电压：
-       ```
-       v_fb = Σ_{k=1..N} tap_coeffs[k-1] * map(data_in[k-1]) * vtap
-       ```
-       其中：
-       - `data_in[0]` = b[n−1]（最近一次判决）
-       - `data_in[1]` = b[n−2]
-       - ...
-       - `data_in[N−1]` = b[n−N]
-   - **比特映射**：
-     - `map_mode="pm1"` 时：0 → −1，1 → +1
-     - `map_mode="01"` 时：0 → 0，1 → 1
-   - **初始化阶段**（可选）：
-     - 若提供了 `init_bits`，DFE Summer 可以在启动时将其作为 `data_in` 的初始值（由外部模块负责初始化 `data_in`）。
-     - 若未提供，`data_in` 应由外部模块初始化为全 0 或其他默认值。
+DFE 的核心设计思想是利用已判决的历史符号来预测并抵消当前符号受到的后游 ISI：
 
-3. 求和与输出：
-   - 差分均衡：`v_eq = v_main - v_fb`
-   - 可选限幅：软限制 `v_eq_sat = tanh(v_eq / Vsat) * Vsat`（`Vsat = 0.5*(sat_max - sat_min)`），或硬裁剪到 `[sat_min, sat_max]`
-   - 差分/共模合成：`out_p = vcm_out + 0.5*v_eq`，`out_n = vcm_out - 0.5*v_eq`
+- **后游 ISI 来源**：高速信道的频率相关衰减和群延迟导致每个发送符号在时域上"拖尾"，影响后续符号的采样点电压
+- **反馈补偿机制**：已判决的历史符号（b[n-1], b[n-2], ...）通过 FIR 滤波器结构生成反馈电压，从当前输入信号中减去
+- **因果性约束**：反馈路径必须至少延迟 1 UI，避免形成代数环（当前判决依赖当前输出，当前输出又依赖当前判决）
 
-4. 历史判决数据的维护（外部职责）：
-   - **重要**：DFE Summer **不负责**维护 `data_in` 数组的更新，该数组由 **RX 顶层模块或 Sampler** 负责管理。
-   - **更新机制**（由外部实现）：
-     - 每个 UI 周期，Sampler 产生新的判决比特 `b[n]`。
-     - RX 顶层模块将 `data_in` 数组左移（或等价操作）：
-       ```
-       data_in[N-1] = data_in[N-2]
-       data_in[N-2] = data_in[N-3]
-       ...
-       data_in[1] = data_in[0]
-       data_in[0] = b[n]  // 新判决插入到队首
-       ```
-     - 在下一个 UI 周期，DFE Summer 读取更新后的 `data_in`，此时 `data_in[0]` 已经是 b[n]，但 DFE 使用它来计算 b[n+1] 的反馈，保证至少 1 UI 延迟。
-   - **因果性保障**：
-     - 由于 `data_in[0]` 对应 b[n−1]（上一 UI 的判决），使用它计算当前 UI n 的反馈不会形成代数环。
-     - 严格禁止在当前 UI 使用当前判决 b[n] 作为反馈（零延迟环路）。
+反馈电压的数学表达式为：
+```
+v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
+```
+其中：
+- c_k：第 k 个抽头系数（tap coefficient）
+- b[n-k]：第 n-k 个 UI 的判决比特（0 或 1）
+- map()：比特映射函数（0→-1, 1→+1 或 0→0, 1→1）
+- vtap：电压缩放因子，将比特映射值转换为伏特
 
-5. 零延迟环路说明：
-   - 若把当前比特 `b[n]` 直接用于当前输出的反馈，会形成代数环（当前输出依赖当前比特，当前比特又依赖当前输出）
-   - 后果：数值不稳定、步长缩小、仿真停滞，且物理上出现"瞬时完美抵消"的非真实行为
-   - 规避：严格使用 `b[n−k] (k≥1)`，通过 `data_in` 数组机制天然保证（`data_in[0]` 最早也是 b[n−1]）
+均衡后的输出为：`v_eq = v_main - v_fb`
 
-6. tap_coeffs=0 的特例：
-   - 当 `tap_coeffs` 全为 0 时，`v_fb=0`，模块等效直通；`data_in` 的值不影响输出，但仍应保持有效长度以兼容后续自适应启用
+### 1.2 核心特性
 
-7. 抽头更新路径（与 Adaption 的交互）：
-   - 初始状态：
-     - DFE Summer 按配置中的 `tap_coeffs` 初始化内部系数，长度为 N。
-   - 在线更新（启用 Adaption 时）：
-     - Adaption 模块在 DE 域根据误差 `e[n]` 与 **从 `data_in` 获取的历史判决值** 执行 LMS/Sign‑LMS 等算法，得到新的抽头系数数组（详见 `adaption.md` 中的 DFE 抽头更新部分）。
-     - 新抽头通过 `sca_de::sca_out<std::vector<double>> dfe_taps` 输出，经 DE→TDF 桥接连接到 DFE Summer 的 `tap_coeffs_de` 输入端口。
-     - DFE Summer 在每个 TDF 周期读取最新的 `dfe_taps`，并更新内部 `tap_coeffs`，通常在下一 UI 开始生效。
-     - **长度一致性**：`dfe_taps` 的长度必须与初始 `tap_coeffs` 长度 N 一致，否则应报错或截断/填充。
-   - 未启用 Adaption 或未连接 `dfe_taps` 时：
-     - 内部 `tap_coeffs` 保持为配置初值或最近一次静态设置，不发生在线更新。
-## 依赖
-- 必须：SystemC‑AMS 2.3.x（TDF 域实现）
-- 时间步：`set_timestep(ui)`，与 CDR/Sampler 的 UI 对齐
-- 数值稳定性：避免代数环；`fs ≫ 链路最高特征频率`，经验 ≥ 20–50×
-- 互联建议：前级 CTLE/VGA 推荐使用 `sca_tdf::sca_ltf_nd` 等线性滤波器
-- 互联建议（`data_in` 数组的管理）：
-  - `data_in` 数组应由 RX 顶层模块或专用的"历史判决队列管理器"维护。
-  - 推荐实现方式：
-    - 在 RX 顶层模块中维护一个长度为 N 的循环队列或移位寄存器。
-    - 每个 UI 周期，Sampler 输出新判决 `b[n]`，队列左移并将 `b[n]` 插入队首。
-    - DFE Summer 从队列读取 `data_in`（可能需要复制或引用传递，视 SystemC‑AMS 实现而定）。
-  - 若 Sampler 在 DE 域输出比特，可通过 DE→TDF 桥接转换后再写入队列。
-  - 初始化：系统启动时，队列应预填充 `init_bits`（若提供）或全 0。
-- 互联建议（与 Adaption 的 tap 更新）：
-  - Adaption 模块通过 `sca_de::sca_out<std::vector<double>> dfe_taps` 输出 DFE 抽头系数。
-  - DFE Summer 通过 `sca_tdf::sca_de::sca_in<std::vector<double>> tap_coeffs_de` 读取 `dfe_taps`，利用 SystemC‑AMS 提供的 DE‑TDF 桥接机制自动完成跨域同步。
-  - 按照 `adaption.md` 的约定，DE 域更新在当前事件完成后，抽头在下一 TDF 采样周期生效，避免同一时间步内的读写竞争。
-- 规范：参数开关（如 `enable`）需明确控制；限幅与映射需与系统单位一致
-## 使用示例
+- **差分架构**：完整的差分信号路径，与前级 CTLE/VGA 和后级 Sampler 兼容
+- **多抽头支持**：支持 1-9 个抽头（典型配置为 3-5 个），可根据信道特性灵活配置
+- **比特映射模式**：支持 ±1 映射（推荐，抗直流偏置更稳健）和 0/1 映射
+- **自适应接口**：通过 DE→TDF 桥接端口接收来自 Adaption 模块的实时抽头更新
+- **软饱和机制**：可选的输出限幅，防止过补偿导致的信号失真
+- **历史比特接口**：通过 data_in 端口接收外部维护的历史判决数组，简化模块职责
 
-1. 基本直通（DFE 关闭或 `tap_coeffs=0`）：
-   - 配置：`enable=true`，`tap_coeffs=[0,0,0]`（3 个 tap 全 0），`ui=2.5e-11`，`vcm_out` 与前级一致
-   - 连接：
-     - CTLE/VGA → `in_p/in_n`
-     - RX 顶层维护长度为 3 的 `data_in` 数组（初始化为 `[0,0,0]` 或 `init_bits`）
-     - DFE Summer 读取 `data_in`，但因 `tap_coeffs` 全 0，`v_fb=0`，输出等效直通
-     - 输出 → Sampler 前级
-   - 若未连接 Adaption 的 `dfe_taps` 端口，可仅依赖 `tap_coeffs` 配置实现静态直通。
+### 1.3 版本历史
 
-2. 开启 3‑tap DFE：
-   - 配置：`tap_coeffs=[0.05, 0.03, 0.02]`，`map_mode="pm1"`，`vtap=1.0`，`init_bits=[0,0,0]`
-   - 连接：
-     - CTLE/VGA → `in_p/in_n`
-     - RX 顶层维护长度为 3 的 `data_in` 数组，初始化为 `[0,0,0]`（对应 `init_bits`）
-     - 每个 UI 周期：
-       1. Sampler 产生新判决 `b[n]`（0 或 1）
-       2. RX 顶层更新 `data_in`：`data_in = [b[n], data_in[0], data_in[1]]`（丢弃 `data_in[2]`）
-       3. DFE Summer 读取 `data_in`，计算 `v_fb = 0.05*map(data_in[0]) + 0.03*map(data_in[1]) + 0.02*map(data_in[2])`
-     - 输出 → Sampler 前级
-   - 如需限幅：设置 `sat_min/sat_max` 到物理范围（例如 `0.0/1.2`）
-   - 若使用 Adaption 在线更新，可将上述初始 `tap_coeffs` 作为 `initial_taps`，后续抽头由 Adaption 通过 `dfe_taps` 动态调整（但 tap 数量保持为 3）。
+| 版本 | 日期 | 主要变更 |
+|------|------|----------|
+| v0.1 | 2025-10-22 | 初始版本，基本 DFE 求和功能 |
+| v0.2 | 2025-10-22 | 配置键 `taps` 重命名为 `tap_coeffs` |
+| v0.3 | 2025-12-18 | 新增 DE→TDF 抽头更新端口，与 Adaption 模块对接 |
+| v0.4 | 2025-12-18 | 改进 `data_in` 接口为数组形式，明确长度约束 |
+| v0.5 | 2025-12-21 | 完善文档结构，新增测试平台架构和仿真分析章节 |
 
-3. 与自适应联动（推荐）：
-   - Adaption 模块在 DE 域执行以下流程：
-     1. 从误差端口读取误差 `e[n]`
-     2. 从 `data_in` 数组读取历史判决值 `b[n−1], b[n−2], ..., b[n−N]`（或通过桥接从 DFE Summer 获取）
-     3. 执行 DFE 抽头更新算法（例如 Sign‑LMS：`c_k ← c_k + μ·sign(e[n])·sign(b[n−k])`）
-     4. 将更新后的抽头数组写入 `dfe_taps` 端口（参见 `adaption.md` 中 "DFE 抽头系数（到 DFE Summer）"）
-   - DFE Summer 通过 `tap_coeffs_de`（或等价的 DE→TDF 端口）接收 `dfe_taps`，在下一 UI 周期将 `tap_coeffs` 更新为新值。
-   - DFE Summer 本身不内置自适应算法，职责仅是：
-     - 读取 `data_in` 数组和当前 `tap_coeffs`
-     - 计算反馈电压 `v_fb = Σ tap_coeffs[k-1] * map(data_in[k-1]) * vtap`
-     - 将 `v_fb` 与主路径差分 `v_main` 求和并输出均衡结果
-   - **数据流向总结**：
-     ```
-     Sampler → 更新 data_in 数组 → DFE Summer 读取 data_in + tap_coeffs 计算 v_fb
-                                    ↑
-                                    |
-                          Adaption 读取 data_in + 误差 e[n] → 更新 tap_coeffs → tap_coeffs_de
-     ```
+---
 
-4. 9‑tap DFE 大规模配置示例：
-   - 配置：`tap_coeffs=[0.10, 0.08, 0.06, 0.04, 0.03, 0.02, 0.015, 0.01, 0.005]`（9 个 tap）
-   - `data_in` 数组长度为 9，由 RX 顶层维护
-   - 反馈计算：`v_fb = Σ_{k=1..9} tap_coeffs[k-1] * map(data_in[k-1]) * vtap`
-   - 适用场景：长信道、严重 ISI，需要更多 tap 进行补偿
-## 测试验证
-- 直通一致性：`tap_coeffs=0` 或 `enable=false` 时，`out_p/out_n` 与主路径差分一致（考虑共模合成）
-- 因果性验证：检查反馈是否至少延迟 1 UI（波形对齐或在代码中查看更新顺序）
-- 眼图开度：对比 `taps=0` 与 `taps>0` 情况下的眼图，验证后游 ISI 取消效果
-- 限幅行为：当设置 `sat_min/sat_max`，输出应在范围内软/硬限制，避免过补偿
-- init_bits 影响：在不同初始填充下启动瞒态的差异（0 填充稳码；训练序列填充更快收敛）
-- 抗零延迟环路：故意将当前比特用于反馈（仅测试环境），应观察到数值问题或不合理行为；恢复因果更新后应正常
-- BER 评估：在 PRBS 输入下，统计误码率变化；验证 DFE 后的 BER 下降
-- `data_in` 数组验证：
-  - 长度一致性：确保 `data_in.size()` == `tap_coeffs.size()`，否则应报错或自动处理
-  - 因果性验证：检查 `data_in[0]` 确实对应 b[n−1]（不是 b[n]），可通过波形对齐或日志确认
-  - 队列更新正确性：在连续 UI 周期中，验证 `data_in` 数组正确移位（旧值向右移，新值插入左侧）
-  - 边界条件：测试 tap 数量为 1、3、9 等不同配置下 `data_in` 的行为
-## 变更历史
-- v0.4（2025-12-18）：重新引入并改进 `data_in` 接口，实现配置驱动的历史判决数据数组机制：
-  - 将 `data_in` 从单比特改为 `std::vector<int>` 数组，长度由 `tap_coeffs.size()` 决定。
-  - 明确 `data_in` 数组的索引顺序（`data_in[0]` = b[n−1]）、长度约束和数据来源。
-  - 强调 DFE Summer 不负责维护 `data_in`，由 RX 顶层模块或 Sampler 负责管理队列更新。
-  - 补充详细的行为模型描述，包括数组验证、反馈计算公式和外部更新机制。
-  - 更新使用示例，展示不同 tap 数量下的 `data_in` 管理方式和与 Adaption 的协同流程。
-  - 新增 `data_in` 相关的测试验证要点。
-  - 新增 `tap_count` 派生参数说明，明确 tap 数量与 `data_in` 长度的关系。
-- v0.3（2025-12-18）：对 DFE Summer 与 Adaption 之间的数据交互进行补充和收敛：
-  - 移除显式判决比特输入端口 `data_in`，历史符号由 RX 内部提供；
-  - 新增 DE→TDF 抽头更新端口（接收 Adaption 的 `dfe_taps` 输出），并在行为模型中描述抽头在线更新路径；
-  - 明确 `tap_coeffs` 在配置中作为初始抽头，运行时可被 Adaption 输出覆盖；
-  - 更新使用示例和互联建议，使其与 `adaption.md` 一致。
-- v0.2（2025-10-22）：将配置键 `taps` 重命名为 `tap_coeffs`，并明确"DFE 求和依据 tap_coeffs（tap 的系数）进行"，同步更新行为模型、示例与测试描述。
-- v0.1（2025-10-22）：首次完整文档；明确零延迟环路的风险与规避、`init_bits` 的作用与设置、`taps=0` 的直通特性；补充接口/参数/行为模型/测试方案与依赖说明。
+## 2. 模块接口
+
+### 2.1 端口定义（TDF域）
+
+| 端口名 | 方向 | 类型 | 说明 |
+|--------|------|------|------|
+| `in_p` | 输入 | double | 差分输入正端（来自 VGA） |
+| `in_n` | 输入 | double | 差分输入负端（来自 VGA） |
+| `data_in` | 输入 | vector&lt;int&gt; | 历史判决数据数组 |
+| `out_p` | 输出 | double | 差分输出正端（送往 Sampler） |
+| `out_n` | 输出 | double | 差分输出负端（送往 Sampler） |
+
+**DE→TDF 参数更新端口**（可选）：
+
+| 端口名 | 方向 | 类型 | 说明 |
+|--------|------|------|------|
+| `tap_coeffs_de` | 输入 | vector&lt;double&gt; | 来自 Adaption 的抽头系数更新 |
+
+> **关于 data_in 端口**：
+> - 数组长度由 `tap_coeffs` 的长度 N 决定
+> - `data_in[0]` 为最近一次判决 b[n-1]，`data_in[1]` 为 b[n-2]，...，`data_in[N-1]` 为 b[n-N]
+> - 数组由 RX 顶层模块或 Sampler 维护更新，DFE Summer 只读取不修改
+
+### 2.2 参数配置（RxDfeSummerParams）
+
+#### 基本参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `tap_coeffs` | vector&lt;double&gt; | [] | 后游抽头系数列表，按 k=1...N 顺序 |
+| `ui` | double | 2.5e-11 | 单位间隔（秒），用于 TDF 时间步 |
+| `vcm_out` | double | 0.0 | 差分输出共模电压（V） |
+| `vtap` | double | 1.0 | 比特映射电压缩放因子 |
+| `map_mode` | string | "pm1" | 比特映射模式："pm1"（±1）或 "01" |
+| `enable` | bool | true | 模块使能，false 时为直通模式 |
+
+#### 饱和限幅参数（可选）
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `sat_enable` | bool | false | 启用输出限幅 |
+| `sat_min` | double | -0.5 | 输出最小电压（V） |
+| `sat_max` | double | 0.5 | 输出最大电压（V） |
+
+#### 初始化参数（可选）
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `init_bits` | vector&lt;double&gt; | [0,...] | 历史比特初始化值，长度必须等于 N |
+
+#### 派生参数
+
+| 参数 | 说明 |
+|------|------|
+| `tap_count` | 抽头数量 N，等于 `tap_coeffs.size()`，决定 `data_in` 数组长度 |
+
+#### 比特映射模式说明
+
+- **pm1 模式**（推荐）：0 → -1，1 → +1
+  - 反馈电压对称，抗直流偏置
+  - 当所有历史比特为 0 时，反馈电压为负值
+
+- **01 模式**：0 → 0，1 → 1
+  - 反馈电压非对称
+  - 需要额外的直流偏置补偿
+
+---
+
+## 3. 核心实现机制
+
+### 3.1 信号处理流程
+
+DFE Summer 模块的 `processing()` 方法采用严格的多步骤处理架构：
+
+```
+输入读取 → 使能检查 → 历史数据验证 → 反馈计算 → 差分求和 → 可选限幅 → 共模合成 → 输出
+```
+
+**步骤 1 - 输入读取**：从差分输入端口读取信号，计算差分分量 `v_main = in_p - in_n`。
+
+**步骤 2 - 使能检查**：若 `enable=false`，直接将输入信号进行共模合成后输出（直通模式）。
+
+**步骤 3 - 历史数据验证**：读取 `data_in` 数组，验证长度是否等于 `tap_count`。若不匹配：
+- 长度不足：用 0 填充
+- 长度过多：截断
+- 应输出警告日志
+
+**步骤 4 - 反馈计算**：遍历所有抽头，计算总反馈电压：
+```cpp
+v_fb = 0.0;
+for (int k = 0; k < tap_count; k++) {
+    double bit_val = map(data_in[k], map_mode);  // 比特映射
+    v_fb += tap_coeffs[k] * bit_val * vtap;
+}
+```
+
+**步骤 5 - 差分求和**：从主路径信号减去反馈电压：`v_eq = v_main - v_fb`
+
+**步骤 6 - 可选限幅**：若启用 `sat_enable`，使用软饱和函数：
+```cpp
+if (sat_enable) {
+    double Vsat = 0.5 * (sat_max - sat_min);
+    v_eq = tanh(v_eq / Vsat) * Vsat;
+}
+```
+
+**步骤 7 - 共模合成**：基于共模电压生成差分输出：
+```
+out_p = vcm_out + 0.5 * v_eq
+out_n = vcm_out - 0.5 * v_eq
+```
+
+### 3.2 抽头更新机制
+
+DFE Summer 支持两种抽头配置模式：
+
+#### 静态模式（无自适应）
+
+- 内部 `tap_coeffs` 保持为配置文件中的初始值
+- 适用于信道特性已知且稳定的场景
+- 抽头系数可通过离线训练或信道仿真预先确定
+
+#### 动态模式（与 Adaption 联动）
+
+1. **初始化阶段**：DFE Summer 按配置中的 `tap_coeffs` 初始化内部系数
+2. **运行时更新**：
+   - Adaption 模块在 DE 域执行 LMS/Sign-LMS 等算法
+   - 新抽头通过 `tap_coeffs_de` 端口传入
+   - DFE Summer 在每个 TDF 周期读取最新系数
+   - 更新在下一 UI 开始生效
+
+**长度一致性约束**：运行时更新的抽头数组长度必须与初始配置一致，若不匹配应报错或截断/填充。
+
+### 3.3 零延迟环路规避
+
+**问题本质**：
+若当前比特 b[n] 直接用于当前输出的反馈计算，会形成代数环：
+- 当前输出 v_eq[n] 依赖反馈 v_fb[n]
+- 反馈 v_fb[n] 依赖判决 b[n]
+- 判决 b[n] 依赖采样值，而采样值来自 v_eq[n]
+
+**后果**：
+- 数值不稳定、仿真步长急剧缩小
+- 可能导致仿真停滞或发散
+- 物理上出现"瞬时完美抵消"的非真实行为
+
+**规避方案**：
+- 严格使用历史符号 b[n-k] (k≥1) 进行反馈计算
+- `data_in` 数组机制天然保证这一点：`data_in[0]` 最早也是 b[n-1]
+- 数组更新由外部模块在当前 UI 判决完成后、下一 UI 开始前执行
+
+### 3.4 直通模式设计
+
+当满足以下任一条件时，DFE Summer 等效为直通：
+
+1. **显式禁用**：`enable = false`
+2. **全零抽头**：`tap_coeffs` 所有元素均为 0
+3. **空抽头配置**：`tap_coeffs` 为空数组
+
+直通模式下：
+- `v_fb = 0`，输出 = 输入（经共模合成）
+- `data_in` 数组的值不影响输出
+- 但 `data_in` 仍应保持有效长度，以兼容后续自适应启用
+
+---
+
+## 4. 测试平台架构
+
+### 4.1 测试平台设计思想
+
+DFE Summer 测试平台（`DfeSummerTransientTestbench`）采用模块化设计，核心理念：
+
+1. **场景驱动**：通过枚举类型选择不同测试场景，每个场景自动配置信号源、抽头系数和历史比特
+2. **组件复用**：差分信号源、历史比特生成器、信号监控器等辅助模块可复用
+3. **眼图对比**：重点验证 DFE 开启前后的眼图开度变化
+
+### 4.2 测试场景定义
+
+| 场景 | 命令行参数 | 测试目标 | 输出文件 |
+|------|----------|---------|----------|
+| BYPASS_TEST | `bypass` / `0` | 验证直通模式一致性 | dfe_summer_bypass.csv |
+| BASIC_DFE | `basic` / `1` | 基本 DFE 反馈功能 | dfe_summer_basic.csv |
+| MULTI_TAP | `multi` / `2` | 多抽头配置测试 | dfe_summer_multi.csv |
+| ADAPTATION | `adapt` / `3` | 自适应抽头更新 | dfe_summer_adapt.csv |
+| SATURATION | `sat` / `4` | 大信号饱和测试 | dfe_summer_sat.csv |
+
+### 4.3 场景配置详解
+
+#### BYPASS_TEST - 直通模式测试
+
+验证当 DFE 禁用或抽头全零时，输出与输入保持一致。
+
+- **信号源**：PRBS-7 伪随机序列
+- **输入幅度**：100mV
+- **抽头配置**：`tap_coeffs = [0, 0, 0]` 或 `enable = false`
+- **验证点**：`out_diff ≈ in_diff`（容许微小数值误差）
+
+#### BASIC_DFE - 基本 DFE 测试
+
+验证单抽头或少数抽头配置下的基本反馈功能。
+
+- **信号源**：带 ISI 的 PRBS 信号（通过 ISI 注入模块模拟信道影响）
+- **抽头配置**：`tap_coeffs = [0.1]`（单抽头）
+- **历史比特**：与输入 PRBS 同步生成
+- **验证点**：
+  - 反馈电压符合公式计算
+  - 输出 ISI 减少
+
+#### MULTI_TAP - 多抽头测试
+
+验证典型 3-5 抽头配置的性能。
+
+- **信号源**：带多游标 ISI 的 PRBS 信号
+- **抽头配置**：`tap_coeffs = [0.08, 0.05, 0.03]`
+- **验证点**：
+  - 各抽头独立生效
+  - 总反馈电压正确累加
+
+#### ADAPTATION - 自适应更新测试
+
+验证与 Adaption 模块的联动功能。
+
+- **初始抽头**：`tap_coeffs = [0, 0, 0]`
+- **更新序列**：通过 `tap_coeffs_de` 端口逐步注入新抽头值
+- **验证点**：
+  - 抽头更新在下一 UI 生效
+  - 更新过程无毛刺
+
+#### SATURATION - 饱和测试
+
+验证大信号输入下的限幅行为。
+
+- **信号源**：大幅度方波（500mV）
+- **抽头配置**：大系数 `tap_coeffs = [0.3, 0.2, 0.1]`
+- **饱和配置**：`sat_min = -0.4V, sat_max = 0.4V`
+- **验证点**：输出幅度受限于 sat_min/sat_max 范围
+
+### 4.4 信号连接拓扑
+
+```
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+│  DiffSignalSrc  │       │  RxDfeSummerTdf │       │  SignalMonitor  │
+│                 │       │                 │       │                 │
+│  out_p ─────────┼───────▶ in_p            │       │                 │
+│  out_n ─────────┼───────▶ in_n            │       │                 │
+└─────────────────┘       │                 │       │                 │
+                          │  out_p ─────────┼───────▶ in_p            │
+┌─────────────────┐       │  out_n ─────────┼───────▶ in_n            │
+│  HistoryBitGen  │       │                 │       │  → 统计分析      │
+│                 │       │                 │       │  → CSV保存       │
+│  data ──────────┼───────▶ data_in         │       └─────────────────┘
+└─────────────────┘       │                 │
+                          │                 │
+┌─────────────────┐       │                 │
+│  AdaptionMock   │       │                 │
+│  (DE域)         │       │                 │
+│  taps ──────────┼───────▶ tap_coeffs_de   │
+└─────────────────┘       └─────────────────┘
+```
+
+### 4.5 辅助模块说明
+
+#### DiffSignalSource - 差分信号源
+
+与 CTLE 测试平台复用，支持：
+- DC、SINE、SQUARE、PRBS 波形
+- 可配置幅度、频率、共模电压
+
+#### HistoryBitGenerator - 历史比特生成器
+
+生成与输入信号同步的历史判决数组：
+- 输入：当前比特流（参考 PRBS）
+- 输出：长度为 N 的历史比特数组
+- 功能：维护 FIFO 队列，每 UI 移位更新
+
+#### ISIInjector - ISI 注入模块
+
+为输入信号添加可控的后游 ISI：
+- 参数：各游标的 ISI 系数
+- 用于模拟信道效应，验证 DFE 取消能力
+
+#### AdaptionMock - 自适应模拟器
+
+模拟 Adaption 模块行为：
+- 按预设时间表输出抽头更新
+- 用于验证 DE→TDF 端口功能
+
+---
+
+## 5. 仿真结果分析
+
+### 5.1 统计指标说明
+
+| 指标 | 计算方法 | 意义 |
+|------|----------|------|
+| 眼高 (eye_height) | 眼图中心垂直开口 | 反映信号质量，DFE 后应增大 |
+| 眼宽 (eye_width) | 眼图中心水平开口 | 反映定时裕量 |
+| ISI 残余 | DFE 后输出的 ISI 分量 | 应接近零 |
+| 反馈电压误差 | 实际 v_fb 与理论计算的差异 | 验证实现正确性 |
+
+### 5.2 典型测试结果解读
+
+#### BYPASS 测试结果示例
+
+配置：`tap_coeffs = [0, 0, 0]`，输入 100mV PRBS
+
+期望结果：
+- 差分输出峰峰值 ≈ 输入峰峰值（200mV）
+- 输出波形与输入波形完全一致
+- 任何可测量的差异应 < 1μV（数值精度范围）
+
+#### BASIC_DFE 测试结果解读
+
+配置：单抽头 `tap_coeffs = [0.1]`，带 10% h1 ISI 的 PRBS
+
+假设场景：
+- 输入信号：`v_in[n] = v_data[n] + 0.1 × v_data[n-1]`（后游 ISI）
+- DFE 反馈：`v_fb[n] = 0.1 × map(b[n-1])`
+
+期望结果：
+- 若抽头系数与 ISI 系数匹配，后游 ISI 应被完全抵消
+- 眼图垂直开口应增大约 10%
+
+#### ADAPTATION 测试结果解读
+
+初始抽头全零，t=100ns 时更新为 `[0.05, 0.03]`
+
+期望结果：
+- t < 100ns：输出 = 直通（无 DFE 效应）
+- t ≥ 100ns + 1 UI：新抽头生效，开始 DFE 补偿
+- 过渡期间无输出毛刺或不连续
+
+### 5.3 波形数据文件格式
+
+CSV 输出格式：
+```
+时间(s),输入差分(V),输出差分(V),反馈电压(V),历史比特
+0.000000e+00,0.100000,0.100000,0.000000,"[0,0,0]"
+2.500000e-11,0.095000,0.085000,0.010000,"[1,0,0]"
+...
+```
+
+采样点数依据仿真时间和 UI 决定（每 UI 一个数据点或多个采样点）。
+
+---
+
+## 6. 运行指南
+
+### 6.1 环境配置
+
+运行测试前需要配置环境变量：
+
+```bash
+source scripts/setup_env.sh
+```
+
+或手动设置：
+```bash
+export SYSTEMC_HOME=/usr/local/systemc-2.3.4
+export SYSTEMC_AMS_HOME=/usr/local/systemc-ams-2.3.4
+```
+
+### 6.2 构建与运行
+
+```bash
+cd build
+cmake ..
+make dfe_summer_tran_tb
+
+cd tb
+./dfe_summer_tran_tb [scenario]
+```
+
+场景参数：
+- `bypass` 或 `0` - 直通模式测试（默认）
+- `basic` 或 `1` - 基本 DFE 测试
+- `multi` 或 `2` - 多抽头测试
+- `adapt` 或 `3` - 自适应更新测试
+- `sat` 或 `4` - 饱和测试
+
+### 6.3 结果查看
+
+测试完成后，控制台输出统计结果，波形数据保存到 CSV 文件：
+
+```bash
+# 查看波形
+python scripts/plot_dfe_waveform.py
+
+# 眼图对比分析
+python scripts/compare_eye_dfe.py --input dfe_summer_bypass.csv --output dfe_summer_basic.csv
+```
+
+---
+
+## 7. 技术要点
+
+### 7.1 因果性保障
+
+DFE 反馈必须严格保证至少 1 UI 的延迟。本设计通过以下机制实现：
+
+1. **data_in 接口设计**：`data_in[0]` 对应 b[n-1]，而非 b[n]
+2. **外部更新责任**：历史比特数组由 RX 顶层更新，DFE Summer 只读取
+3. **更新时序**：数组更新发生在当前 UI 判决完成后、下一 UI 处理前
+
+若误将当前比特用于反馈，SystemC-AMS 可能报告代数环错误或仿真异常缓慢。
+
+### 7.2 抽头系数范围
+
+- **典型范围**：0.01 ~ 0.3（取决于信道 ISI 特性）
+- **符号约定**：正系数用于抵消同相 ISI，负系数用于抵消反相 ISI
+- **稳定性约束**：抽头绝对值之和应 < 1，避免反馈发散
+
+建议通过信道仿真或自适应算法确定最优抽头值。
+
+### 7.3 抽头数量选择
+
+| 抽头数量 | 适用场景 | 复杂度 |
+|----------|----------|--------|
+| 1-2 | 短信道、低 ISI | 低 |
+| 3-5 | 中等信道、典型应用 | 中 |
+| 6-9 | 长信道、严重 ISI | 高 |
+
+更多抽头可以抵消更多后游 ISI，但增加：
+- 功耗和面积
+- 自适应收敛时间
+- 误差传播风险
+
+### 7.4 与自适应模块的协同
+
+DFE Summer 本身不包含自适应算法，职责分离如下：
+
+| 模块 | 职责 |
+|------|------|
+| DFE Summer | 读取抽头和历史比特，计算反馈，执行求和 |
+| Adaption | 读取误差信号，执行 LMS 算法，输出新抽头 |
+| RX 顶层 | 维护历史比特数组，协调各模块时序 |
+
+这种分离简化了各模块设计，便于独立测试和替换。
+
+### 7.5 比特映射模式对比
+
+| 特性 | pm1 模式 | 01 模式 |
+|------|----------|---------|
+| 映射规则 | 0→-1, 1→+1 | 0→0, 1→1 |
+| 反馈对称性 | 对称 | 非对称 |
+| 直流分量 | 无（平均为 0） | 有（平均为 0.5×vtap） |
+| 推荐场景 | 通用（默认） | 特定协议要求 |
+
+### 7.6 时间步设置
+
+- TDF 时间步应设为 UI：`set_timestep(ui)`
+- 与 CDR/Sampler 的 UI 保持一致
+- 过小的时间步会增加计算开销，过大则丢失信号细节
+
+---
+
+## 8. 参考信息
+
+### 8.1 相关文件
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| 参数定义 | `/include/common/parameters.h` | RxDfeSummerParams 结构体 |
+| 头文件 | `/include/ams/rx_dfe_summer.h` | RxDfeSummerTdf 类声明 |
+| 实现文件 | `/src/ams/rx_dfe_summer.cpp` | RxDfeSummerTdf 类实现 |
+| 测试平台 | `/tb/rx/dfe_summer/dfe_summer_tran_tb.cpp` | 瞬态仿真测试 |
+| 测试辅助 | `/tb/rx/dfe_summer/dfe_summer_helpers.h` | 信号源和监控器 |
+| 单元测试 | `/tests/unit/test_dfe_summer_basic.cpp` | GoogleTest 单元测试 |
+| 自适应文档 | `/docs/modules/adaption.md` | Adaption 模块接口说明 |
+
+### 8.2 依赖项
+
+- SystemC 2.3.4
+- SystemC-AMS 2.3.4
+- C++14 标准
+- GoogleTest 1.12.1（单元测试）
+
+### 8.3 配置示例
+
+基本配置（3 抽头 DFE）：
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0.08, 0.05, 0.03],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "enable": true
+  }
+}
+```
+
+带限幅的配置：
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0.1, 0.06, 0.04, 0.02],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "sat_enable": true,
+    "sat_min": -0.5,
+    "sat_max": 0.5,
+    "init_bits": [0, 0, 0, 0],
+    "enable": true
+  }
+}
+```
+
+与自适应联动的配置：
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0, 0, 0],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "enable": true
+  },
+  "adaption": {
+    "dfe_enable": true,
+    "dfe_mu": 0.01,
+    "dfe_algorithm": "sign_lms"
+  }
+}
+```
+
+---
+
+**文档版本**：v0.5  
+**最后更新**：2025-12-21  
+**作者**：SerDes Design Team
