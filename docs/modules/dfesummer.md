@@ -544,35 +544,180 @@ export SYSTEMC_HOME=/usr/local/systemc-2.3.4
 export SYSTEMC_AMS_HOME=/usr/local/systemc-ams-2.3.4
 ```
 
+验证环境配置：
+```bash
+echo $SYSTEMC_HOME       # 应输出 SystemC 安装路径
+echo $SYSTEMC_AMS_HOME   # 应输出 SystemC-AMS 安装路径
+```
+
 ### 6.2 构建与运行
 
 ```bash
-cd build
+# 创建构建目录并编译
+mkdir -p build && cd build
 cmake ..
 make dfe_summer_tran_tb
 
+# 运行测试（在 tb 目录下）
 cd tb
 ./dfe_summer_tran_tb [scenario]
 ```
 
 场景参数：
-- `bypass` 或 `0` - 直通模式测试（默认）
-- `basic` 或 `1` - 基本 DFE 测试
-- `multi` 或 `2` - 多抽头测试
-- `adapt` 或 `3` - 自适应更新测试
-- `sat` 或 `4` - 饱和测试
+| 参数 | 编号 | 说明 |
+|------|------|------|
+| `bypass` | `0` | 直通模式测试（默认） |
+| `basic` | `1` | 基本 DFE 单抽头测试 |
+| `multi` | `2` | 多抽头配置测试 |
+| `adapt` | `3` | 自适应抽头更新测试 |
+| `sat` | `4` | 大信号饱和测试 |
 
-### 6.3 结果查看
+运行示例：
+```bash
+# 运行基本 DFE 测试
+./dfe_summer_tran_tb basic
 
-测试完成后，控制台输出统计结果，波形数据保存到 CSV 文件：
+# 运行多抽头测试
+./dfe_summer_tran_tb 2
+
+# 运行全部场景（批量测试）
+for i in 0 1 2 3 4; do ./dfe_summer_tran_tb $i; done
+```
+
+### 6.3 参数配置示例
+
+DFE Summer 支持通过 JSON 配置文件进行参数化。以下是针对不同应用场景的快速启动配置。
+
+#### 快速验证配置（单抽头）
+
+适用于初步功能验证和调试：
+
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0.1],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "enable": true
+  }
+}
+```
+
+#### 典型应用配置（3抽头）
+
+适用于中等 ISI 信道的常规应用：
+
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0.08, 0.05, 0.03],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "enable": true,
+    "sat_enable": false
+  }
+}
+```
+
+#### 高性能配置（5抽头+限幅）
+
+适用于严重 ISI 信道，需要更多抽头和输出保护：
+
+```json
+{
+  "dfe_summer": {
+    "tap_coeffs": [0.10, 0.07, 0.05, 0.03, 0.02],
+    "ui": 2.5e-11,
+    "vcm_out": 0.6,
+    "vtap": 1.0,
+    "map_mode": "pm1",
+    "enable": true,
+    "sat_enable": true,
+    "sat_min": -0.5,
+    "sat_max": 0.5,
+    "init_bits": [0, 0, 0, 0, 0]
+  }
+}
+```
+
+#### 配置加载方式
 
 ```bash
-# 查看波形
-python scripts/plot_dfe_waveform.py
+# 使用命令行参数指定配置文件
+./dfe_summer_tran_tb basic --config config/dfe_3tap.json
 
-# 眼图对比分析
-python scripts/compare_eye_dfe.py --input dfe_summer_bypass.csv --output dfe_summer_basic.csv
+# 或通过环境变量
+export SERDES_CONFIG=config/dfe_5tap.json
+./dfe_summer_tran_tb multi
 ```
+
+### 6.4 结果查看
+
+测试完成后，控制台输出统计结果，波形数据保存到 CSV 文件。
+
+#### 控制台输出示例
+
+```
+=== DFE Summer Transient Simulation ===
+Scenario: BASIC_DFE
+Duration: 1.0 us
+Tap count: 1
+Tap coeffs: [0.10]
+
+--- Statistics ---
+Input  diff: mean=0.000 mV, pp=200.0 mV, rms=70.7 mV
+Output diff: mean=0.000 mV, pp=185.2 mV, rms=65.3 mV
+Feedback:    mean=0.000 mV, pp=100.0 mV, rms=35.4 mV
+Eye height improvement: +8.5%
+
+Output file: dfe_summer_basic.csv
+```
+
+#### 波形可视化
+
+```bash
+# 基本波形查看
+python scripts/plot_dfe_waveform.py dfe_summer_basic.csv
+
+# 输入输出对比
+python scripts/plot_dfe_waveform.py dfe_summer_basic.csv --compare
+
+# 眼图叠加绘制
+python scripts/plot_eye.py dfe_summer_basic.csv --samples-per-ui 20
+```
+
+#### 眼图对比分析
+
+对比 DFE 开启前后的眼图变化，量化均衡效果：
+
+```bash
+# 生成对比报告
+python scripts/compare_eye_dfe.py \
+    --before dfe_summer_bypass.csv \
+    --after dfe_summer_basic.csv \
+    --output report/dfe_comparison.html
+
+# 批量对比多抽头配置
+python scripts/compare_eye_dfe.py \
+    --before dfe_summer_bypass.csv \
+    --after dfe_summer_basic.csv dfe_summer_multi.csv \
+    --labels "1-tap" "3-tap" \
+    --output report/dfe_multi_comparison.html
+```
+
+#### 结果文件汇总
+
+| 场景 | 输出文件 | 主要分析内容 |
+|------|----------|--------------|
+| BYPASS | dfe_summer_bypass.csv | 基线参考，无 DFE 效应 |
+| BASIC_DFE | dfe_summer_basic.csv | 单抽头眼高改善 |
+| MULTI_TAP | dfe_summer_multi.csv | 多抽头累积效果 |
+| ADAPTATION | dfe_summer_adapt.csv | 抽头更新过渡行为 |
+| SATURATION | dfe_summer_sat.csv | 限幅传递曲线 |
 
 ---
 
