@@ -33,15 +33,6 @@
     {"id": "cdr/7-技术要点", "batch": 2, "status": "done"},
     {"id": "cdr/8-参考信息", "batch": 2, "status": "done"},
 
-    {"id": "clkGen/1-概述", "batch": 2, "status": "pending"},
-    {"id": "clkGen/2-模块接口", "batch": 2, "status": "pending"},
-    {"id": "clkGen/3-核心实现机制", "batch": 2, "status": "pending"},
-    {"id": "clkGen/4-测试平台架构", "batch": 2, "status": "pending"},
-    {"id": "clkGen/5-仿真结果分析", "batch": 2, "status": "pending"},
-    {"id": "clkGen/6-运行指南", "batch": 2, "status": "pending"},
-    {"id": "clkGen/7-技术要点", "batch": 2, "status": "pending"},
-    {"id": "clkGen/8-参考信息", "batch": 2, "status": "pending"},
-
     {"id": "driver/1-概述", "batch": 2, "status": "pending"},
     {"id": "driver/2-模块接口", "batch": 2, "status": "pending"},
     {"id": "driver/3-核心实现机制", "batch": 2, "status": "pending"},
@@ -94,6 +85,15 @@
     {"id": "waveGen/5-仿真结果分析", "batch": 3, "status": "pending"},
     {"id": "waveGen/6-运行指南", "batch": 3, "status": "pending"},
     {"id": "waveGen/7-技术要点", "batch": 3, "status": "pending"},
-    {"id": "waveGen/8-参考信息", "batch": 3, "status": "pending"}
+    {"id": "waveGen/8-参考信息", "batch": 3, "status": "pending"},
+
+    {"id": "clkGen/1-概述", "batch": 2, "status": "pending"},
+    {"id": "clkGen/2-模块接口", "batch": 2, "status": "pending"},
+    {"id": "clkGen/3-核心实现机制", "batch": 2, "status": "pending"},
+    {"id": "clkGen/4-测试平台架构", "batch": 2, "status": "pending"},
+    {"id": "clkGen/5-仿真结果分析", "batch": 2, "status": "pending"},
+    {"id": "clkGen/6-运行指南", "batch": 2, "status": "pending"},
+    {"id": "clkGen/7-技术要点", "batch": 2, "status": "pending"},
+    {"id": "clkGen/8-参考信息", "batch": 2, "status": "pending"}
   ]
 }
