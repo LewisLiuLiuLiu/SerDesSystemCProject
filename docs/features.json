@@ -37,7 +37,7 @@
     {"id": "driver/2-模块接口", "batch": 2, "status": "done"},
     {"id": "driver/3-核心实现机制", "batch": 2, "status": "done"},
     {"id": "driver/4-测试平台架构", "batch": 2, "status": "done"},
-    {"id": "driver/5-仿真结果分析", "batch": 2, "status": "pending"},
+    {"id": "driver/5-仿真结果分析", "batch": 2, "status": "done"},
     {"id": "driver/6-运行指南", "batch": 2, "status": "pending"},
     {"id": "driver/7-技术要点", "batch": 2, "status": "pending"},
     {"id": "driver/8-参考信息", "batch": 2, "status": "pending"},
