@@ -40,7 +40,7 @@
     {"id": "driver/5-仿真结果分析", "batch": 2, "status": "done"},
     {"id": "driver/6-运行指南", "batch": 2, "status": "done"},
     {"id": "driver/7-技术要点", "batch": 2, "status": "done"},
-    {"id": "driver/8-参考信息", "batch": 2, "status": "pending"},
+    {"id": "driver/8-参考信息", "batch": 2, "status": "done"},
 
     {"id": "ffe/1-概述", "batch": 2, "status": "pending"},
     {"id": "ffe/2-模块接口", "batch": 2, "status": "pending"},
