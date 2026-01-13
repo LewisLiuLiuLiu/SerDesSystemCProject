@@ -44,7 +44,7 @@
 
     {"id": "ffe/1-概述", "batch": 2, "status": "done"},
     {"id": "ffe/2-模块接口", "batch": 2, "status": "done"},
-    {"id": "ffe/3-核心实现机制", "batch": 2, "status": "pending"},
+    {"id": "ffe/3-核心实现机制", "batch": 2, "status": "done"},
     {"id": "ffe/4-测试平台架构", "batch": 2, "status": "pending"},
     {"id": "ffe/5-仿真结果分析", "batch": 2, "status": "pending"},
     {"id": "ffe/6-运行指南", "batch": 2, "status": "pending"},
