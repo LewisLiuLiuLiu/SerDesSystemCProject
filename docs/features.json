@@ -62,7 +62,7 @@
 
     {"id": "channel/1-概述", "batch": 3, "status": "done"},
     {"id": "channel/2-模块接口", "batch": 3, "status": "done"},
-    {"id": "channel/3-核心实现机制", "batch": 3, "status": "pending"},
+    {"id": "channel/3-核心实现机制", "batch": 3, "status": "done"},
     {"id": "channel/4-测试平台架构", "batch": 3, "status": "pending"},
     {"id": "channel/5-仿真结果分析", "batch": 3, "status": "pending"},
     {"id": "channel/6-运行指南", "batch": 3, "status": "pending"},
