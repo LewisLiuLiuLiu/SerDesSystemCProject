@@ -1,0 +1,66 @@
+# ============================================================================
+# Docker ignore file for SerDes SystemC-AMS Project
+# 优化构建上下文，排除不必要的文件
+# ============================================================================
+
+# Build artifacts
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.out
+*.exe
+
+# IDE and editor files
+.idea/
+.vscode/
+.qoder/
+.venv/
+.iflow/
+.trae/
+*.swp
+*.swo
+*~
+
+# macOS system files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Git directory (not needed in container)
+.git/
+.gitignore
+.github/
+
+# Output and log files
+*.log
+*.dat
+*.vcd
+*.wdb
+*.csv
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Documentation (optional, can include if needed)
+# docs/
+
+# Test reports
+*.xml
+coverage/
+
+# Large generated files
+IFLOW.md
+
+# Workspace files
+*.code-workspace
