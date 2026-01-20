@@ -1033,21 +1033,74 @@ print(f"透传误差（最大值）: {np.max(error):.2e} V")  # 期望 < 1e-12
 
 SystemC-AMS 仿真成功完成且无警告，说明端口连接和采样率配置正确。
 
-### 4.5 运行指南
+### 4.5 辅助模块说明
 
-**构建与运行**：
-```bash
-cd /path/to/serdes
-mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make simple_link_tb
-./bin/simple_link_tb
+TX Mux 模块在测试平台中依赖以下辅助模块提供输入信号和功能支持。本节说明这些模块的功能及其与 Mux 的交互关系。
+
+#### 4.5.1 WaveGen 模块（波形生成器）
+
+**模块路径**：`include/ams/wave_generation.h`, `src/ams/wave_generation.cpp`
+
+**功能说明**：
+- 生成测试用的 PRBS（伪随机二进制序列）数据码型
+- 支持多种 PRBS 类型：PRBS7、PRBS9、PRBS15、PRBS23、PRBS31
+- 可配置数据速率、比特模式和初始化种子
+
+**与 Mux 的关系**：
+- WaveGen → FFE → Mux 信号链的源头
+- 为 Mux 提供测试用的模拟信号输入（通过 FFE 均衡后）
+- 在 `simple_link_tb.cpp` 中实例化并连接到 FFE 模块
+
+**典型配置**：
+```json
+{
+  "wave": {
+    "type": "PRBS31",
+    "poly": "x^31 + x^28 + 1",
+    "init": "0x7FFFFFFF"
+  }
+}
 ```
 
-**结果分析**：
-1. 检查 `simple_link.dat` 是否生成
-2. 确认仿真日志无错误或警告
-3. 使用 Python 脚本验证透传特性（需先添加 `sig_mux_out` 追踪）
+#### 4.5.2 Trace 信号监控器
+
+**功能说明**：
+- SystemC-AMS 提供的波形追踪机制（`sca_util::sca_trace`）
+- 将仿真过程中的信号值记录到 `.dat` 文件
+- 支持后处理分析和可视化（Python/Matplotlib）
+
+**关键追踪信号**：
+- `ffe_out`：FFE 输出（Mux 输入），用于验证透传特性
+- `mux_out`：Mux 输出，当前测试平台未追踪（建议添加）
+- `driver_out`：Driver 输出，用于系统级信号完整性分析
+
+**添加 Mux 输出追踪**：
+```cpp
+// 在 tb/simple_link_tb.cpp 中添加
+sca_util::sca_trace(tf, sig_mux_out, "mux_out");
+```
+
+**数据格式**：
+```
+# time(s)    wave_out(V)    ffe_out(V)    mux_out(V)    driver_out(V)
+0.00e+00     0.000          0.000         0.000         0.000
+1.78e-12     0.500          0.500         0.500         0.200
+...
+```
+
+#### 4.5.3 ConfigLoader 模块（配置加载器）
+
+**模块路径**：`include/de/config_loader.h`, `src/de/config_loader.cpp`
+
+**功能说明**：
+- 从 JSON/YAML 配置文件加载参数
+- 解析并填充到 `TxParams` 结构体
+- 提供参数验证和默认值处理
+
+**与 Mux 的关系**：
+- 加载 `tx.mux_lane` 参数并传递给 Mux 构造函数
+- 支持多场景配置切换（不同通道索引）
+- 简化测试配置管理，避免硬编码参数
 
 ---
 
@@ -1169,6 +1222,166 @@ SystemC-AMS trace 文件输出格式（当添加 mux_out 追踪后）：
 ---
 
 ## 6. 运行指南
+
+### 6.1 环境配置
+
+TX Mux 模块通过系统级测试平台 `simple_link_tb` 进行验证，需完成 SystemC-AMS 开发环境配置。
+
+**必需环境变量**：
+```bash
+export SYSTEMC_HOME=/usr/local/systemc-2.3.4
+export SYSTEMC_AMS_HOME=/usr/local/systemc-ams-2.3.4
+```
+
+**验证安装**：
+```bash
+ls $SYSTEMC_AMS_HOME/include/systemc-ams
+# 应显示 systemc-ams.h 等头文件
+```
+
+### 6.2 构建与运行
+
+#### 6.2.1 使用 CMake（推荐）
+
+**构建系统级测试平台**：
+```bash
+cd /path/to/serdes
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make simple_link_tb
+```
+
+**运行仿真**：
+```bash
+./bin/simple_link_tb
+# 仿真输出：simple_link.dat
+```
+
+**预期输出**：
+```
+SystemC 2.3.4 --- Jan 13 2026 10:30:00
+SystemC-AMS 2.3.4 --- Jan 13 2026 10:30:00
+Info: simulation stopped by user.
+```
+
+#### 6.2.2 使用 Makefile
+
+**快速运行**：
+```bash
+cd /path/to/serdes
+make run
+# 自动构建并执行 simple_link_tb
+```
+
+**清理构建**：
+```bash
+make clean
+```
+
+### 6.3 参数配置
+
+TX Mux 通过配置文件 `config/default.json` 加载参数：
+
+```json
+{
+  "tx": {
+    "mux_lane": 0
+  }
+}
+```
+
+**修改通道索引**（当前版本无实际功能影响）：
+```json
+{
+  "tx": {
+    "mux_lane": 2
+  }
+}
+```
+
+**注意**：修改配置后需重新运行测试平台，无需重新编译。
+
+### 6.4 结果查看
+
+#### 6.4.1 验证仿真成功
+
+检查仿真日志无错误或警告：
+```bash
+grep -i "error\|warning" build/simulation.log
+# 无输出表示成功
+```
+
+#### 6.4.2 添加 Mux 输出追踪（可选）
+
+**编辑测试平台**（`tb/simple_link_tb.cpp`）：
+```cpp
+// 在 trace 创建部分添加
+sca_util::sca_trace(tf, sig_mux_out, "mux_out");
+```
+
+**重新编译并运行**：
+```bash
+cd build
+make simple_link_tb
+./bin/simple_link_tb
+```
+
+#### 6.4.3 Python 分析脚本
+
+使用 Python 验证透传特性（需先添加 `mux_out` 追踪）：
+
+```python
+import numpy as np
+
+data = np.loadtxt('build/simple_link.dat', skiprows=1)
+ffe_out = data[:, 2]  # 根据实际列索引调整
+mux_out = data[:, 3]
+
+error = np.abs(mux_out - ffe_out)
+print(f"透传误差（最大）: {np.max(error):.2e} V")
+print(f"透传误差（RMS）: {np.sqrt(np.mean(error**2)):.2e} V")
+# 期望：误差 < 1e-12 V
+```
+
+### 6.5 故障排查
+
+#### 6.5.1 常见错误
+
+**采样率不匹配**：
+```
+Error: (E117) sc_signal<T>: port not bound
+```
+**解决**：检查 FFE 和 Driver 的 `set_rate()` 配置是否均为 `rate=1`。
+
+**端口连接错误**：
+```
+Error: port 'in' not connected
+```
+**解决**：验证 `simple_link_tb.cpp` 中 Mux 的输入输出连接完整性。
+
+**配置文件缺失**：
+```
+Error: cannot open config/default.json
+```
+**解决**：确保工作目录在项目根目录，或修改配置文件路径。
+
+#### 6.5.2 调试技巧
+
+**启用详细日志**：
+```bash
+export SC_REPORT_VERBOSITY=SC_FULL
+./bin/simple_link_tb
+```
+
+**检查信号连接**：在测试平台构造函数中添加：
+```cpp
+std::cout << "Mux input rate: " << tx_mux.in.get_rate() << std::endl;
+std::cout << "Mux output rate: " << tx_mux.out.get_rate() << std::endl;
+```
+
+---
+
+## 7. 技术要点
 
 ### 7.1 透传架构避免代数环
 
@@ -1387,165 +1600,5 @@ SystemC-AMS trace 文件输出格式（当添加 mux_out 追踪后）：
 ---
 
 **文档版本**：v0.1  
-**最后更新**：2026-01-14  
+**最后更新**：2026-01-13  
 **作者**：SerDes 项目文档团队
-
-## 6. 运行指南
-
-### 6.1 环境配置
-
-TX Mux 模块通过系统级测试平台 `simple_link_tb` 进行验证，需完成 SystemC-AMS 开发环境配置。
-
-**必需环境变量**：
-```bash
-export SYSTEMC_HOME=/usr/local/systemc-2.3.4
-export SYSTEMC_AMS_HOME=/usr/local/systemc-ams-2.3.4
-```
-
-**验证安装**：
-```bash
-ls $SYSTEMC_AMS_HOME/include/systemc-ams
-# 应显示 systemc-ams.h 等头文件
-```
-
-### 6.2 构建与运行
-
-#### 6.2.1 使用 CMake（推荐）
-
-**构建系统级测试平台**：
-```bash
-cd /path/to/serdes
-mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make simple_link_tb
-```
-
-**运行仿真**：
-```bash
-./bin/simple_link_tb
-# 仿真输出：simple_link.dat
-```
-
-**预期输出**：
-```
-SystemC 2.3.4 --- Jan 14 2026 10:30:00
-SystemC-AMS 2.3.4 --- Jan 14 2026 10:30:00
-Info: simulation stopped by user.
-```
-
-#### 6.2.2 使用 Makefile
-
-**快速运行**：
-```bash
-cd /path/to/serdes
-make run
-# 自动构建并执行 simple_link_tb
-```
-
-**清理构建**：
-```bash
-make clean
-```
-
-### 6.3 参数配置
-
-TX Mux 通过配置文件 `config/default.json` 加载参数：
-
-```json
-{
-  "tx": {
-    "mux_lane": 0
-  }
-}
-```
-
-**修改通道索引**（当前版本无实际功能影响）：
-```json
-{
-  "tx": {
-    "mux_lane": 2
-  }
-}
-```
-
-**注意**：修改配置后需重新运行测试平台，无需重新编译。
-
-### 6.4 结果查看
-
-#### 6.4.1 验证仿真成功
-
-检查仿真日志无错误或警告：
-```bash
-grep -i "error\|warning" build/simulation.log
-# 无输出表示成功
-```
-
-#### 6.4.2 添加 Mux 输出追踪（可选）
-
-**编辑测试平台**（`tb/simple_link_tb.cpp`）：
-```cpp
-// 在 trace 创建部分添加
-sca_util::sca_trace(tf, sig_mux_out, "mux_out");
-```
-
-**重新编译并运行**：
-```bash
-cd build
-make simple_link_tb
-./bin/simple_link_tb
-```
-
-#### 6.4.3 Python 分析脚本
-
-使用 Python 验证透传特性（需先添加 `mux_out` 追踪）：
-
-```python
-import numpy as np
-
-data = np.loadtxt('build/simple_link.dat', skiprows=1)
-ffe_out = data[:, 2]  # 根据实际列索引调整
-mux_out = data[:, 3]
-
-error = np.abs(mux_out - ffe_out)
-print(f"透传误差（最大）: {np.max(error):.2e} V")
-print(f"透传误差（RMS）: {np.sqrt(np.mean(error**2)):.2e} V")
-# 期望：误差 < 1e-12 V
-```
-
-### 6.5 故障排查
-
-#### 6.5.1 常见错误
-
-**采样率不匹配**：
-```
-Error: (E117) sc_signal<T>: port not bound
-```
-**解决**：检查 FFE 和 Driver 的 `set_rate()` 配置是否均为 `rate=1`。
-
-**端口连接错误**：
-```
-Error: port 'in' not connected
-```
-**解决**：验证 `simple_link_tb.cpp` 中 Mux 的输入输出连接完整性。
-
-**配置文件缺失**：
-```
-Error: cannot open config/default.json
-```
-**解决**：确保工作目录在项目根目录，或修改配置文件路径。
-
-#### 6.5.2 调试技巧
-
-**启用详细日志**：
-```bash
-export SC_REPORT_VERBOSITY=SC_FULL
-./bin/simple_link_tb
-```
-
-**检查信号连接**：在测试平台构造函数中添加：
-```cpp
-std::cout << "Mux input rate: " << tx_mux.in.get_rate() << std::endl;
-std::cout << "Mux output rate: " << tx_mux.out.get_rate() << std::endl;
-```
-
----
