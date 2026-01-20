@@ -111,12 +111,6 @@ FFE在不同SerDes标准和应用中的配置要求：
 - **接收端均衡器（CTLE/DFE）**  
   FFE与接收端均衡器形成协同补偿关系。FFE处理低频和中频的ISI，减轻接收端负担；CTLE处理高频衰减；DFE处理残余的后游标ISI。合理的均衡预算分配可以优化系统整体的功耗和性能。
 
-### 1.5 版本历史
-
-| 版本 | 日期 | 主要变更 |
-|------|------|----------|
-| v0.1 | 2026-01-13 | 初始设计规格，定义核心功能与接口 |
-
 ---
 
 ## 2. 模块接口
@@ -1181,13 +1175,13 @@ python scripts/analyze_ffe_frequency.py
 
 | 文件类型 | 路径 | 说明 |
 |---------|------|------|
-| 参数定义 | `/include/common/parameters.h` | TxFfeParams 结构体 |
-| 头文件 | `/include/ams/tx_ffe.h` | TxFfeTdf 类声明 |
-| 实现文件 | `/src/ams/tx_ffe.cpp` | TxFfeTdf 类实现 |
-| 测试平台 | `/tb/tx/ffe/ffe_tran_tb.cpp` | 瞬态仿真测试平台 |
-| 测试辅助 | `/tb/tx/ffe/ffe_helpers.h` | 信号源和监控器 |
-| 单元测试 | `/tests/unit/test_ffe_basic.cpp` | GoogleTest 单元测试 |
-| 波形绘图 | `/scripts/plot_ffe_waveform.py` | Python 可视化脚本 |
+| 参数定义 | `include/common/parameters.h` | TxFfeParams 结构体 |
+| 头文件 | `include/ams/tx_ffe.h` | TxFfeTdf 类声明 |
+| 实现文件 | `src/ams/tx_ffe.cpp` | TxFfeTdf 类实现 |
+| 测试平台 | `tb/tx/ffe/ffe_tran_tb.cpp` | 瞬态仿真测试平台（待实现） |
+| 测试辅助 | `tb/tx/ffe/ffe_helpers.h` | 信号源和监控器（待实现） |
+| 单元测试 | `tests/unit/test_ffe_basic.cpp` | GoogleTest 单元测试（待实现） |
+| 波形绘图 | `scripts/plot_ffe_waveform.py` | Python 可视化脚本（待实现） |
 
 ### 8.2 相关模块文档
 
