@@ -1262,7 +1262,33 @@ rx_ctle.in(sig_channel_out);
 - 波形追踪文件：`simple_link.dat`（包含`channel_out`信号，第97行定义）
 - 终端日志：信道模块创建和连接信息
 
-#### 4.2.2 当前测试的局限性
+#### 4.2.2 测试场景定义
+
+v0.4版本当前仅支持一个集成测试场景，通过完整链路验证信道基本传输功能。
+
+| 场景名 | 命令行参数 | 测试目标 | 输出文件 | 验证方法 |
+|--------|-----------|---------|---------|---------|
+| **集成测试** | 无（默认场景） | 验证TX→Channel→RX完整链路传输，检查信道衰减和带宽限制 | `simple_link.dat` | 1. 波形目视检查<br>2. FFT频响分析<br>3. 统计指标计算（峰峰值、衰减量） |
+
+**场景说明**：
+- **命令行参数**：当前v0.4版本不支持命令行参数切换场景，所有测试通过修改`config/default.json`配置实现
+- **测试目标**：验证信道模块能够正确处理输入信号，应用一阶低通滤波器，输出符合预期的衰减和带限信号
+- **输出文件**：SystemC-AMS标准制表符格式（`.dat`），包含时间戳和所有追踪信号
+- **验证方法**：
+  1. **波形目视检查**：对比`driver_out`和`channel_out`波形，验证幅度衰减和高频衰减
+  2. **FFT频响分析**：计算传递函数，验证-3dB带宽和DC增益
+  3. **统计指标计算**：计算峰峰值、衰减量，与配置参数对比
+
+**未来扩展场景**（设计规格）：
+
+| 场景名 | 命令行参数 | 测试目标 | 输出文件 | 实现状态 |
+|--------|-----------|---------|---------|---------|
+| **频响扫描** | `--scenario freq` | 验证信道频域响应，与原始S参数对比 | `channel_freq.dat` | ❌ 未实现 |
+| **串扰测试** | `--scenario crosstalk` | 验证多端口串扰耦合（NEXT/FEXT） | `crosstalk.dat` | ❌ 未实现 |
+| **双向传输** | `--scenario bidirectional` | 验证S12反向路径和S11/S22反射 | `bidirectional.dat` | ❌ 未实现 |
+| **性能基准** | `--scenario benchmark` | 测量仿真速度和内存占用 | `benchmark.log` | ❌ 未实现 |
+
+#### 4.2.3 当前测试的局限性
 
 v0.4集成测试的主要限制：
 
@@ -1428,26 +1454,261 @@ cd build
 
 #### 4.4.4 结果查看方法
 
-**方法1：使用Python绘图**
-```bash
-python scripts/plot_simple_link.py
-# 生成: simple_link_waveform.png
+**方法1：使用Python直接分析波形**
+
+创建Python脚本 `analyze_channel.py`：
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 读取波形数据
+data = np.loadtxt('simple_link.dat', skiprows=1)
+time = data[:, 0]
+driver_out = data[:, 2]  # TX驱动器输出（信道输入）
+channel_out = data[:, 3]  # 信道输出
+
+# 计算统计指标
+driver_pp = np.max(driver_out) - np.min(driver_out)
+channel_pp = np.max(channel_out) - np.min(channel_out)
+attenuation = 20 * np.log10(channel_pp / driver_pp)
+
+print(f"输入峰峰值: {driver_pp*1000:.2f} mV")
+print(f"输出峰峰值: {channel_pp*1000:.2f} mV")
+print(f"信道衰减: {attenuation:.2f} dB")
+
+# 绘制波形对比
+plt.figure(figsize=(12, 6))
+
+# 完整波形
+plt.subplot(2, 1, 1)
+plt.plot(time*1e9, driver_out*1000, 'b-', label='Driver Out', alpha=0.7)
+plt.plot(time*1e9, channel_out*1000, 'r-', label='Channel Out', alpha=0.7)
+plt.xlabel('Time (ns)')
+plt.ylabel('Amplitude (mV)')
+plt.title('Channel Waveforms (Full)')
+plt.legend()
+plt.grid(True)
+
+# 局部放大（前500 ps）
+plt.subplot(2, 1, 2)
+mask = time < 500e-12
+plt.plot(time[mask]*1e9, driver_out[mask]*1000, 'b-', label='Driver Out', alpha=0.7)
+plt.plot(time[mask]*1e9, channel_out[mask]*1000, 'r-', label='Channel Out', alpha=0.7)
+plt.xlabel('Time (ns)')
+plt.ylabel('Amplitude (mV)')
+plt.title('Channel Waveforms (Zoom: 0-500 ps)')
+plt.legend()
+plt.grid(True)
+
+plt.tight_layout()
+plt.savefig('channel_waveform.png', dpi=150)
+print("波形图已保存: channel_waveform.png")
 ```
 
-**方法2：使用GtkWave查看器**
+运行脚本：
 ```bash
-# 转换为VCD格式（如果支持）
-# gtkwave simple_link.vcd
+python analyze_channel.py
+```
+
+**方法2：计算并绘制频响曲线**
+
+创建Python脚本 `analyze_freq_response.py`：
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
+
+# 读取波形数据
+data = np.loadtxt('simple_link.dat', skiprows=1)
+time = data[:, 0]
+driver_out = data[:, 2]
+channel_out = data[:, 3]
+
+# 计算采样率
+fs = 1.0 / (time[1] - time[0])
+
+# 使用Welch方法计算功率谱密度
+nperseg = min(8192, len(time))
+f, Pxx_driver = signal.welch(driver_out, fs=fs, nperseg=nperseg)
+_, Pxx_channel = signal.welch(channel_out, fs=fs, nperseg=nperseg)
+
+# 计算频响函数
+H = np.sqrt(Pxx_channel / Pxx_driver)
+H_db = 20 * np.log10(H + 1e-12)  # 避免log(0)
+
+# 绘制频响
+plt.figure(figsize=(10, 6))
+plt.semilogx(f/1e9, H_db, 'b-', linewidth=2)
+plt.axhline(-10, color='r', linestyle='--', label='DC Gain: -10 dB')
+plt.axhline(-13, color='g', linestyle='--', label='-3dB: -13 dB')
+plt.xlabel('Frequency (GHz)')
+plt.ylabel('Magnitude (dB)')
+plt.title('Channel Frequency Response')
+plt.legend()
+plt.grid(True)
+plt.savefig('channel_freq_response.png', dpi=150)
+
+# 输出关键指标
+idx_3db = np.where(H_db < -13.0)[0]
+if len(idx_3db) > 0:
+    bw_3db = f[idx_3db[0]]
+    print(f"-3dB带宽: {bw_3db/1e9:.2f} GHz")
+print(f"DC增益: {H_db[0]:.2f} dB")
+print(f"20 GHz增益: {H_db[np.argmin(np.abs(f - 20e9))]:.2f} dB")
 ```
 
 **方法3：文本编辑器直接查看**
+
 ```bash
+# 查看前100行
 head -n 100 simple_link.dat
+
+# 使用less分页查看
+less simple_link.dat
 ```
 
 ---
 
-### 4.5 与其他模块的测试集成
+### 4.5 辅助模块说明
+
+v0.4版本的集成测试平台依赖多个辅助模块来生成激励信号和监控输出。这些模块虽然不属于信道模块本身，但对完整验证信道功能至关重要。
+
+#### 4.5.1 信号源模块
+
+**WaveGeneration（波形生成器）**
+
+- **功能**：生成测试激励信号，包括PRBS伪随机序列、阶跃信号、正弦波等
+- **配置**：通过`config/default.json`中的`wave`节配置
+- **输出信号**：`wave_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - 提供宽带激励信号，用于验证信道的频域响应
+  - PRBS信号模拟真实数据流，用于评估信道的ISI影响
+  - 阶跃信号用于测量信道的上升时间和带宽
+
+**典型配置**：
+```json
+{
+  "wave": {
+    "type": "PRBS31",
+    "poly": "x^31 + x^28 + 1",
+    "init": "0x7FFFFFFF"
+  }
+}
+```
+
+#### 4.5.2 上游模块（TX链路）
+
+**TxFFE（前馈均衡器）**
+
+- **功能**：对输入信号进行预加重，补偿信道预期的高频损耗
+- **输出信号**：`ffe_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - 预加重可以部分抵消信道衰减，提高接收端信噪比
+  - 在v0.4集成测试中，FFE提供标准化的输入信号给信道
+
+**TxMux（多路复用器）**
+
+- **功能**：实现通道选择和信号路由
+- **输出信号**：`mux_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - 简化测试场景，通过选择固定通道进行测试
+
+**TxDriver（驱动器）**
+
+- **功能**：提供输出驱动，设置摆幅和输出阻抗
+- **输出信号**：`driver_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - **关键模块**：`driver_out`直接连接到信道输入`channel.in`
+  - 提供标准化的输出摆幅（如0.8V峰峰值）
+  - 输出阻抗与信道特性阻抗匹配（通常50Ω）
+
+#### 4.5.3 下游模块（RX链路）
+
+**RxCTLE（连续时间线性均衡器）**
+
+- **功能**：补偿信道高频衰减，恢复信号质量
+- **输入信号**：`ctle_in`（TDF输入端口）← 连接到`channel.out`
+- **输出信号**：`ctle_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - **关键模块**：接收信道输出，验证信道衰减是否在CTLE可补偿范围内
+  - 通过调整CTLE零点/极点，可以验证信道的高频衰减特性
+  - CTLE输出质量反映信道对信号完整性的影响
+
+**RxVGA（可变增益放大器）**
+
+- **功能**：提供可编程增益，补偿信号幅度损失
+- **输出信号**：`vga_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - 补偿信道的整体衰减（DC增益）
+  - 验证信道低频衰减是否在VGA可调节范围内
+
+**RxSampler（采样器）**
+
+- **功能**：依据时钟相位采样，恢复数字数据
+- **输出信号**：`sampler_out`（TDF输出端口）
+- **在信道测试中的作用**：
+  - 验证信道引入的ISI是否影响采样判决
+  - 采样错误率反映信道对系统性能的影响
+
+#### 4.5.4 信号监控与追踪
+
+**SystemC-AMS追踪机制**
+
+- **功能**：记录仿真过程中所有信号的时间序列
+- **配置**：在测试平台中通过`sca_util::sca_trace()`注册信号
+- **输出文件**：`simple_link.dat`（制表符分隔格式）
+- **关键追踪信号**：
+  - `time`：仿真时间轴
+  - `wave_out`：波形生成器输出
+  - `driver_out`：TX驱动器输出（信道输入参考）
+  - `channel_out`：**信道模块输出**（核心验证信号）
+  - `ctle_out`：CTLE输出（验证信道衰减补偿）
+  - `sampler_out`：采样器输出（验证系统级影响）
+
+**追踪代码示例**（来自`simple_link_tb.cpp`）：
+```cpp
+sca_util::sca_trace_file* tf = sca_util::sca_create_tabular_trace_file("simple_link");
+sca_util::sca_trace(tf, time, "time");
+sca_util::sca_trace(tf, wave_out, "wave_out");
+sca_util::sca_trace(tf, driver_out, "driver_out");
+sca_util::sca_trace(tf, channel_out, "channel_out");  // 关键信号
+sca_util::sca_trace(tf, ctle_out, "ctle_out");
+sca_util::sca_trace(tf, sampler_out, "sampler_out");
+```
+
+#### 4.5.5 全局配置模块
+
+**GlobalParams（全局参数）**
+
+- **功能**：定义仿真全局参数，包括采样率、单位间隔、仿真时长等
+- **配置**：通过`config/default.json`中的`global`节配置
+- **关键参数**：
+  - `Fs`：采样率（Hz），影响信道时域精度
+  - `UI`：单位间隔（秒），数据周期的倒数
+  - `duration`：仿真时长（秒）
+  - `seed`：随机种子，影响PRBS生成
+
+**典型配置**：
+```json
+{
+  "global": {
+    "Fs": 80e9,
+    "UI": 2.5e-11,
+    "duration": 1e-6,
+    "seed": 12345
+  }
+}
+```
+
+**对信道测试的影响**：
+- 采样率`Fs`决定了信道时域建模的精度，建议`Fs ≥ 2 × max_bandwidth`
+- 仿真时长`duration`决定了统计可靠性，建议至少覆盖10,000个UI
+
+---
+
+### 4.6 与其他模块的测试集成
 
 #### 4.5.1 完整链路回归测试
 
@@ -2182,11 +2443,196 @@ cd build
 
 ### 6.3 常见问题
 
-**问题1**：输出信号幅度异常。检查 `attenuation_db` 设置是否过大。
+#### 配置相关问题
 
-**问题2**：高频分量丢失。增大 `bandwidth_hz`（建议 ≥ 10 GHz）。
+**Q1：修改了`config/default.json`中的信道参数，但仿真结果没有变化？**
 
-**问题3**：仿真速度慢。降低 `global.Fs` 或 `global.duration`。
+**A**：可能的原因和解决方案：
+1. **参数拼写错误**：检查JSON语法，确保参数名正确（如`attenuation_db`不是`attenuation_db`）
+2. **参数未生效**：v0.4版本仅支持`simple_model.attenuation_db`和`simple_model.bandwidth_hz`，其他参数（如`touchstone`、`crosstalk`）未实现
+3. **配置文件路径错误**：确认测试平台读取的是正确的配置文件路径
+4. **重新编译**：修改配置后需要重新编译测试平台：`make simple_link_tb`
+
+**验证方法**：
+```bash
+# 检查配置文件是否被正确加载
+./bin/simple_link_tb 2>&1 | grep -i "channel"
+
+# 查看实际使用的参数
+cat config/default.json | grep -A 5 "channel"
+```
+
+**Q2：如何选择合适的`attenuation_db`和`bandwidth_hz`参数？**
+
+**A**：参数选择指南：
+- **`attenuation_db`（衰减量）**：
+  - 短PCB走线（<10cm）：5-10 dB
+  - 中等背板（10-30cm）：10-20 dB
+  - 长背板（30-60cm）：20-30 dB
+  - 长电缆（>5m）：30-40 dB
+- **`bandwidth_hz`（-3dB带宽）**：
+  - 建议：`bandwidth_hz ≥ data_rate / 2`
+  - 40 Gbps数据率：建议≥20 GHz
+  - 112 Gbps数据率：建议≥56 GHz
+  - 带宽过低会导致高频分量丢失，眼图闭合
+
+**调试方法**：
+```python
+# 运行仿真后分析频响
+import numpy as np
+from scipy import signal
+
+data = np.loadtxt('simple_link.dat', skiprows=1)
+driver_out = data[:, 2]
+channel_out = data[:, 3]
+
+# 计算频响
+fs = 1.0 / (data[1, 0] - data[0, 0])
+f, Pxx_driver = signal.welch(driver_out, fs=fs, nperseg=8192)
+_, Pxx_channel = signal.welch(channel_out, fs=fs, nperseg=8192)
+H_db = 20 * np.log10(np.sqrt(Pxx_channel / Pxx_driver))
+
+# 检查DC增益和-3dB带宽
+dc_gain = H_db[0]
+bw_3db = f[np.where(H_db < dc_gain - 3)[0][0]]
+print(f"DC增益: {dc_gain:.2f} dB")
+print(f"-3dB带宽: {bw_3db/1e9:.2f} GHz")
+```
+
+#### 仿真结果问题
+
+**Q3：输出信号幅度异常（过大或过小）？**
+
+**A**：可能的原因和解决方案：
+1. **`attenuation_db`设置过大**：减小衰减量，建议范围5-20 dB
+2. **`bandwidth_hz`设置过小**：增大带宽，建议≥数据率/2
+3. **输入信号幅度异常**：检查`wave`模块的输出摆幅配置
+4. **信道模块未正确连接**：检查信号连接代码，确认`channel.in`连接到`driver_out`
+
+**调试步骤**：
+```python
+# 对比输入输出幅度
+data = np.loadtxt('simple_link.dat', skiprows=1)
+driver_out = data[:, 2]
+channel_out = data[:, 3]
+
+driver_pp = np.max(driver_out) - np.min(driver_out)
+channel_pp = np.max(channel_out) - np.min(channel_out)
+attenuation = 20 * np.log10(channel_pp / driver_pp)
+
+print(f"输入峰峰值: {driver_pp*1000:.2f} mV")
+print(f"输出峰峰值: {channel_pp*1000:.2f} mV")
+print(f"实测衰减: {attenuation:.2f} dB")
+print(f"配置衰减: {config['channel']['simple_model']['attenuation_db']} dB")
+```
+
+**Q4：高频分量丢失，眼图闭合严重？**
+
+**A**：解决方法：
+1. **增大`bandwidth_hz`**：建议≥10 GHz，对于高速链路建议≥数据率/2
+2. **检查采样率**：`global.Fs`应≥4×`bandwidth_hz`，避免混叠
+3. **验证CTLE配置**：CTLE的零点应设置在信道-3dB频率附近
+4. **考虑FFE预加重**：增加FFE预加重补偿高频损耗
+
+**验证方法**：
+```python
+# 检查高频衰减
+import numpy as np
+from scipy import signal
+
+data = np.loadtxt('simple_link.dat', skiprows=1)
+driver_out = data[:, 2]
+channel_out = data[:, 3]
+
+fs = 1.0 / (data[1, 0] - data[0, 0])
+f, Pxx_driver = signal.welch(driver_out, fs=fs, nperseg=8192)
+_, Pxx_channel = signal.welch(channel_out, fs=fs, nperseg=8192)
+H_db = 20 * np.log10(np.sqrt(Pxx_channel / Pxx_driver))
+
+# 检查高频衰减
+hf_idx = np.where(f > 10e9)[0]
+hf_loss = np.mean(H_db[hf_idx])
+print(f"高频衰减 (>10GHz): {hf_loss:.2f} dB")
+
+# 如果高频衰减过大，增大bandwidth_hz
+if hf_loss < -20:
+    print("警告：高频衰减过大，建议增大bandwidth_hz")
+```
+
+#### 性能问题
+
+**Q5：仿真速度慢，如何优化？**
+
+**A**：优化方法：
+1. **降低采样率**：减小`global.Fs`，但需满足`Fs ≥ 2 × max_bandwidth`
+2. **缩短仿真时长**：减小`global.duration`，但需保证统计可靠性（至少10,000 UI）
+3. **减少追踪信号**：在测试平台中注释掉不必要的`sca_trace()`调用
+4. **使用Release编译**：`cmake .. -DCMAKE_BUILD_TYPE=Release`
+
+**性能基准**：
+- v0.4简化模型（一阶LPF）：> 10,000x 实时
+- 如果仿真速度< 100x 实时，检查是否有其他模块（如CTLE）成为瓶颈
+
+**性能分析**：
+```bash
+# 使用time命令测量仿真时间
+time ./bin/simple_link_tb
+
+# 输出示例：
+# real    0m1.234s  # 实际运行时间
+# user    0m1.100s  # CPU时间
+# sys     0m0.134s  # 系统时间
+
+# 计算加速比
+simulation_time = 1e-6  # 1 μs
+real_time = 1.234  # 秒
+speedup = simulation_time / real_time
+print(f"加速比: {speedup:.2f}x 实时")
+```
+
+#### 其他问题
+
+**Q6：v0.4版本能否使用真实的S参数文件？**
+
+**A**：不能。v0.4版本的`touchstone`参数仅占位，未实现文件加载和解析功能。当前仅支持简化的一阶低通滤波器模型（通过`attenuation_db`和`bandwidth_hz`配置）。完整S参数建模计划在v0.5版本实现。
+
+**Q7：如何验证信道模块是否正常工作？**
+
+**A**：验证步骤：
+1. 运行集成测试：`./bin/simple_link_tb`
+2. 检查输出文件：`simple_link.dat`是否生成
+3. 使用Python脚本分析频响（参考第4.4.4节）
+4. 对比实测衰减与配置衰减：误差应< 0.5 dB
+5. 对比实测带宽与配置带宽：误差应< 5%
+
+**Q8：仿真结果与预期不符，如何调试？**
+
+**A**：调试流程：
+1. **检查配置**：确认`config/default.json`中的参数正确
+2. **检查信号连接**：确认`channel.in`连接到`driver_out`，`channel.out`连接到`ctle.in`
+3. **检查采样率**：确认`global.Fs`足够高（≥4×`bandwidth_hz`）
+4. **逐步验证**：
+   - 检查`driver_out`是否正常（TX链路）
+   - 检查`channel_out`是否符合预期衰减和带宽
+   - 检查`ctle_out`是否补偿了信道衰减
+5. **启用详细日志**：在测试平台中添加`std::cout`输出关键信号值
+
+**调试代码示例**：
+```cpp
+// 在simple_link_tb.cpp中添加
+void ChannelSparamTdf::processing() {
+    double x = in.read();
+    double y = apply_lpf(x);  // 应用一阶LPF
+    out.write(y);
+    
+    // 调试输出（每1000个样本输出一次）
+    static int count = 0;
+    if (++count % 1000 == 0) {
+        std::cout << "Channel[" << count << "]: "
+                  << "in=" << x << ", out=" << y << std::endl;
+    }
+}
+```
 
 ---
 
@@ -3839,6 +4285,11 @@ class AdaptiveChannelEstimator:
 
 #### 未来版本配置（有理函数拟合法，设计规格）
 
+> ⚠️ **重要提示**：以下配置为设计规格，当前v0.4版本不支持。
+> 实际生效参数仅包括 `simple_model.attenuation_db` 和 `simple_model.bandwidth_hz`。
+> 请勿在v0.4版本中使用 `method`、`config_file`、`fit`、`impulse`、`gpu_acceleration` 等参数。
+> 这些参数在 `parameters.h` 中不存在，直接使用会导致配置加载失败。
+
 ```json
 {
   "channel": {
@@ -3864,6 +4315,12 @@ class AdaptiveChannelEstimator:
 - 预期行为：使用向量拟合算法将S参数转换为8阶有理函数，强制稳定性和无源性约束
 
 #### 未来版本配置（冲激响应卷积法，设计规格）
+
+> ⚠️ **重要提示**：以下配置为设计规格，当前v0.4版本不支持。
+> 实际生效参数仅包括 `simple_model.attenuation_db` 和 `simple_model.bandwidth_hz`。
+> 请勿在v0.4版本中使用 `method`、`config_file`、`impulse`、`gpu_acceleration` 等参数。
+> 这些参数在 `parameters.h` 中不存在，直接使用会导致配置加载失败。
+> **特别注意**：GPU加速功能仅支持 Apple Silicon（M1/M2/M3及后续芯片），不支持 Intel Mac、Linux 或 Windows。
 
 ```json
 {
