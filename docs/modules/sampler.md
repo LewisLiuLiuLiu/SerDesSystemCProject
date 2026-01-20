@@ -60,11 +60,11 @@ data_out = f(Vdiff, phase_offset, parameters)
 
 > **重要**：`clk_sample`和`phase_offset`端口根据`phase_source`参数选择其一连接，SystemC-AMS要求所有端口均需连接。
 
-### 2.4 端口数据类型详解
+### 2.3 端口数据类型详解
 
 为了澄清CDR集成接口的设计理念，本节详细说明`clk_sample`和`phase_offset`端口的数据类型和物理含义：
 
-#### 2.4.1 `clk_sample`端口（时钟驱动模式）
+#### 2.3.1 `clk_sample`端口（时钟驱动模式）
 
 **数据类型**：`double`（单位：伏特V）  
 **物理含义**：这是一个**连续电压信号**，表示CDR模块输出的时钟波形
@@ -94,7 +94,7 @@ clk_sample电压信号：
     阈值：0.5V ──────────────────
 ```
 
-#### 2.4.2 `phase_offset`端口（相位信号模式）
+#### 2.3.2 `phase_offset`端口（相位信号模式）
 
 **数据类型**：`double`（单位：秒s）  
 **物理含义**：这是一个**时间偏移量**，表示CDR检测到的相位误差
@@ -123,7 +123,7 @@ phase_offset信号值：
     -100e-12 ────────────────────── 提前采样
 ```
 
-#### 2.4.3 关键区别总结
+#### 2.3.3 关键区别总结
 
 | 特性 | `clk_sample` | `phase_offset` |
 |------|-------------|----------------|
@@ -135,7 +135,7 @@ phase_offset信号值：
 | **CDR输出** | 完整时钟信号 | 相位检测结果 |
 | **采样触发** | 边沿检测 | 时间计算 |
 
-#### 2.4.4 选择指南
+#### 2.3.4 选择指南
 
 **使用`clk_sample`（时钟驱动）的情况**：
 - CDR直接输出可用的采样时钟
@@ -157,6 +157,7 @@ phase_offset信号值：
 |------|------|--------|------|
 | `sample_delay` | double | 0.0 | 固定采样延迟时间（s） |
 | `phase_source` | string | "clock" | 相位来源：clock/phase |
+| `threshold` | double | 0.0 | 判决阈值（V，默认为0V） |
 | `resolution` | double | 0.02 | 分辨率阈值（V，模糊判决区半宽） |
 | `hysteresis` | double | 0.02 | 迟滞阈值（V，施密特触发器效应） |
 
@@ -183,7 +184,7 @@ phase_offset信号值：
 
 工作原理：`noise_sample ~ N(0, sigma²)`，叠加到差分信号
 
-### 2.3 相位控制机制
+### 2.4 相位控制机制
 
 #### 时钟驱动模式（phase_source = "clock"）
 
@@ -240,6 +241,8 @@ noise_sample ~ N(0, noise.sigma²)
 
 **步骤4-相位调整**：根据`phase_source`选择时钟采样或相位偏移模式，计算实际采样时刻。
 
+> **注意**：`clk_sample`和`phase_offset`端口在当前版本中为预留接口，尚未在`processing()`函数中实现实际读取和使用逻辑。相位调整功能将在后续版本中完善。
+
 **步骤5-判决逻辑应用**：
 - 若`resolution = 0`：标准阈值判决
 - 若`resolution > 0`：模糊判决机制
@@ -252,6 +255,7 @@ noise_sample ~ N(0, noise.sigma²)
 ```
 data_out = f(Vdiff, phase_offset, parameters)
 其中：Vdiff = (inp - inn) + offset.value + noise_sample
+判决阈值：V_th = threshold
 ```
 这一等效关系对应第1章中提到的设计原理，并为后续的BER分析提供了基础。
 
@@ -265,8 +269,8 @@ data_out = f(Vdiff, phase_offset, parameters)
 
 ```
 阈值定义：
-- threshold_high = +hysteresis/2
-- threshold_low = -hysteresis/2
+- threshold_high = threshold + hysteresis/2
+- threshold_low = threshold - hysteresis/2
 
 判决逻辑：
 if (Vdiff > threshold_high):
@@ -319,7 +323,7 @@ if (hysteresis >= resolution):
 **物理意义说明**：
 - `hysteresis` 定义了双阈值判决的迟滞区间宽度
 - `resolution` 定义了模糊判决区的半宽
-- 若 `hysteresis ≥ resolution`，会导致判决行为冲突，无法明确判决策略
+- 若 `hysteresis >= resolution`（大于或等于），会导致判决行为冲突，无法明确判决策略
 
 #### 3.3.2 错误处理流程与数据保存
 
@@ -429,21 +433,22 @@ Q(x) = (1/√(2π)) ∫[x,∞] exp(-t²/2) dt
 
 **引入偏移电压**：
 - 偏移：V_offset = offset.value（3.1节定义）
+- 判决阈值：V_th = threshold（2.2节定义）
 
-由于偏移电压的存在，发送'1'和发送'0'时的判决裕量不再对称：
+由于偏移电压和判决阈值的存在，发送'1'和发送'0'时的判决裕量不再对称：
 
 **BER计算**：
 ```
 对于发送'1' (信号 = +A):
-BER_1 = Q((A - V_offset) / σ_noise)
+BER_1 = Q((A - (V_offset + threshold)) / σ_noise)
 
 对于发送'0' (信号 = -A):
-BER_0 = Q((A + V_offset) / σ_noise)
+BER_0 = Q((A + (V_offset - threshold)) / σ_noise)
 
 总BER = (BER_1 + BER_0) / 2
 ```
 
-在实际系统中，偏移电压会导致眼图中心偏移，从而增加误码率。
+在实际系统中，偏移电压和判决阈值会导致眼图中心偏移，从而增加误码率。
 
 #### 3.5.3 模糊判决对BER的修正
 
@@ -479,7 +484,7 @@ BER ≈ Q(A / σ_total) + P_metastable × 0.5
 综合3.1～3.4节的所有建模要素（器件噪声、偏移、抖动、模糊判决），可得采样器的完整BER模型：
 
 ```
-BER_total ≈ Q((A - |V_offset|) / σ_total) + P_metastable × 0.5
+BER_total ≈ Q((A - |V_offset + threshold|) / σ_total) + P_metastable × 0.5
 
 其中：
 σ_total = sqrt(σ_noise² + σ_jitter²)  （由3.4.2节定义）
@@ -495,65 +500,68 @@ P_metastable = erf(resolution / (√2 × σ_total))  （由3.5.3节定义）
 import numpy as np
 from scipy.special import erfc, erf
 
-def calculate_ber(A, sigma_noise, V_offset, resolution, f_data, sigma_tjitter):
+def calculate_ber(A, sigma_noise, V_offset, threshold, resolution, f_data, sigma_tjitter):
     """
     计算Sampler的综合误码率
-    
+
     参数：
     A: 信号幅度（V）
     sigma_noise: 器件噪声标准差（V），对应配置参数 noise.sigma
     V_offset: 偏移电压（V），对应配置参数 offset.value
+    threshold: 判决阈值（V），对应配置参数 threshold
     resolution: 分辨率阈值（V），对应配置参数 resolution
     f_data: 数据速率（Hz）
     sigma_tjitter: 时序抖动标准差（s）
-    
+
     返回：
     BER_total: 总误码率
-    
+
     公式对应关系：
     - sigma_jitter 计算与 3.4.2 节一致
     - sigma_total 定义与 3.4.2 节一致
     - P_metastable 定义与 3.5.3 节一致
+    - threshold 影响与 3.5.2 节一致
     """
     # Q函数
     def Q(x):
         return 0.5 * erfc(x / np.sqrt(2))
-    
+
     # Jitter诱发的电压误差（3.4.2节公式）
     sigma_jitter = 2 * np.pi * f_data * A * sigma_tjitter
-    
+
     # 综合噪声（3.4.2节公式）
     sigma_total = np.sqrt(sigma_noise**2 + sigma_jitter**2)
-    
-    # 噪声和偏移导致的BER（3.5.2节扩展）
-    SNR_eff = (A - abs(V_offset)) / sigma_total
+
+    # 噪声、偏移和阈值导致的BER（3.5.2节扩展）
+    SNR_eff = (A - abs(V_offset + threshold)) / sigma_total
     BER_noise = Q(SNR_eff)
-    
+
     # 模糊判决导致的BER（3.5.3节公式）
     P_metastable = erf(resolution / (np.sqrt(2) * sigma_total))
     BER_fuzzy = P_metastable * 0.5
-    
+
     # 总BER（3.5.4节综合公式）
     BER_total = BER_noise + BER_fuzzy
-    
+
     return BER_total
 
 # 示例参数
 A = 0.5              # 500 mV差分幅度
 sigma_noise = 0.01   # 10 mV RMS器件噪声
 V_offset = 0.005     # 5 mV偏移
+threshold = 0.0      # 0 V判决阈值
 resolution = 0.02    # 20 mV分辨率阈值
 f_data = 10e9        # 10 Gbps数据速率
 sigma_tjitter = 1e-12 # 1 ps RMS抖动
 
-BER = calculate_ber(A, sigma_noise, V_offset, resolution, f_data, sigma_tjitter)
+BER = calculate_ber(A, sigma_noise, V_offset, threshold, resolution, f_data, sigma_tjitter)
 print(f"BER = {BER:.2e}")
 # 输出示例: BER ≈ 1e-12
 ```
 
 **说明**：
 
-上述函数将3.1～3.4节的所有建模要素（噪声、偏移、抖动、模糊判决）统一到一个可计算的BER函数中。通过调整各参数，可以进行参数扫描和性能优化，指导实际设计中的裕量分配。
+上述函数将3.1～3.4节的所有建模要素（噪声、偏移、抖动、模糊判决、判决阈值）统一到一个可计算的BER函数中。通过调整各参数，可以进行参数扫描和性能优化，指导实际设计中的裕量分配。
 
 ---
 
@@ -603,7 +611,7 @@ print(f"BER = {BER:.2e}")
 
 验证分辨率阈值内的随机判决机制。
 
-- **信号源**：低幅度正弦波（50mV）
+- **信号源**：低幅度正弦波（30mV）
 - **测试参数**：resolution=20mV, hysteresis=10mV
 - **验证点**：模糊区随机性符合50/50分布
 
@@ -795,9 +803,9 @@ double ber = BerCalculator::calculate_ber(expected, actual);
 
 CSV输出格式：
 ```
-时间(s),输入+(V),输入-(V),差分(V),数字输出,理论输出
-0.000000e+00,0.600000,0.400000,0.200000,1,1
-1.000000e-10,0.601000,0.399000,0.202000,1,1
+time(s),input+(V),input-(V),differential(V),tdf_output,de_output
+0.000000e+00,0.600000,0.400000,0.200000,1.000000,1
+1.000000e-10,0.601000,0.399000,0.202000,1.000000,1
 ...
 ```
 
