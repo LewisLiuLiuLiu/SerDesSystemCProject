@@ -51,9 +51,13 @@ SystemParams ConfigLoader::load_default() {
     params.tx.ffe.taps = {-0.1, 1.0, -0.1};  // 3-tap FFE
     
     // TX Driver
-    params.tx.driver.swing = 0.8;    // 800 mV
-    params.tx.driver.bw = 20e9;      // 20 GHz
-    params.tx.driver.sat = 1.0;      // 1 V saturation
+    params.tx.driver.dc_gain = 1.0;
+    params.tx.driver.vswing = 0.8;           // 800 mV
+    params.tx.driver.vcm_out = 0.6;          // 600 mV common mode
+    params.tx.driver.output_impedance = 50.0;
+    params.tx.driver.poles = {50e9};         // 50 GHz pole
+    params.tx.driver.sat_mode = "soft";
+    params.tx.driver.vlin = 1.0;             // 1 V linear range
     
     // Channel
     params.channel.attenuation_db = 10.0;  // 10 dB loss

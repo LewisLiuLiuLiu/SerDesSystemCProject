@@ -1,3 +1,18 @@
+/**
+ * @file test_cdr_basic.cpp
+ * @brief Unit tests for RxCdrTdf module
+ * 
+ * Test coverage:
+ * - Basic functionality (port connection, signal flow)
+ * - Parameter configuration (PI controller, PAI)
+ * - Parameter validation (invalid inputs)
+ * - Phase range limiting
+ * - Phase quantization
+ * - Edge detection (rising, falling, no edge)
+ * - PI controller behavior
+ * - Multiple data patterns
+ */
+
 #include <gtest/gtest.h>
 #include <systemc-ams>
 #include <cmath>
@@ -6,7 +21,10 @@
 
 using namespace serdes;
 
-// 简单数据源模块 - 用于测试CDR
+// ============================================================================
+// Test Helper: Simple Data Source
+// ============================================================================
+
 class SimpleDataSource : public sca_tdf::sca_module {
 public:
     sca_tdf::sca_out<double> out;
@@ -36,7 +54,10 @@ public:
     }
 };
 
-// 测试用顶层模块
+// ============================================================================
+// Test Helper: Testbench Module
+// ============================================================================
+
 SC_MODULE(CdrBasicTestbench) {
     SimpleDataSource* src;
     RxCdrTdf* cdr;
@@ -66,116 +87,198 @@ SC_MODULE(CdrBasicTestbench) {
     double get_phase_output() {
         return sig_phase.read(0);
     }
+    
+    double get_integral_state() {
+        return cdr->get_integral_state();
+    }
+    
+    double get_phase_error() {
+        return cdr->get_phase_error();
+    }
 };
 
 // ============================================================================
-// 测试用例1: 基本功能验证
+// Test Case 1: Basic Functionality
 // ============================================================================
-TEST(CdrBasicTest, AllBasicFunctionality) {
-    // 配置CDR参数（最小配置）
+
+TEST(CdrBasicTest, BasicFunctionality) {
     CdrParams params;
     params.pi.kp = 0.01;
     params.pi.ki = 1e-4;
+    params.pi.edge_threshold = 0.5;
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
 
-    // 创建测试平台 - 使用交替模式（010101...）
     std::vector<double> pattern = {1.0, -1.0, 1.0, -1.0, 1.0, -1.0};
     CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
 
-    // 运行仿真
     sc_core::sc_start(10, sc_core::SC_NS);
 
-    // 测试1: 验证端口连接成功
+    // Verify port connection
     SUCCEED() << "Port connection test passed";
 
-    // 测试2: 验证相位输出在合理范围内
+    // Verify phase output is in valid range
     double phase = tb->get_phase_output();
     EXPECT_GE(phase, -params.pai.range) << "Phase output should be >= -range";
     EXPECT_LE(phase, params.pai.range) << "Phase output should be <= range";
 
-    // 测试3: 验证相位量化到分辨率
+    // Verify phase is quantized
     double quantized = std::round(phase / params.pai.resolution) * params.pai.resolution;
-    EXPECT_NEAR(phase, quantized, 1e-15) << "Phase output should be quantized to resolution";
-
-    // 测试4: 验证PI参数配置
-    EXPECT_DOUBLE_EQ(params.pi.kp, 0.01) << "Kp parameter test";
-    EXPECT_DOUBLE_EQ(params.pi.ki, 1e-4) << "Ki parameter test";
-
-    // 测试5: 验证PAI参数配置
-    EXPECT_DOUBLE_EQ(params.pai.resolution, 1e-12) << "PAI resolution test";
-    EXPECT_DOUBLE_EQ(params.pai.range, 5e-11) << "PAI range test";
+    EXPECT_NEAR(phase, quantized, 1e-15) << "Phase should be quantized";
 
     delete tb;
 }
 
 // ============================================================================
-// 测试用例2: PI控制器参数配置验证
+// Test Case 2: PI Controller Configuration
 // ============================================================================
-TEST(CdrTest, PI_Controller_Configuration) {
+
+TEST(CdrTest, PIControllerConfiguration) {
     CdrParams params;
 
-    // 测试默认值
+    // Test default values
     params.pi.kp = 0.01;
     params.pi.ki = 1e-4;
     EXPECT_GT(params.pi.kp, 0.0) << "Kp should be positive";
     EXPECT_GT(params.pi.ki, 0.0) << "Ki should be positive";
 
-    // 测试不同Kp值
-    params.pi.kp = 0.001;  // 小增益
+    // Test different Kp values
+    params.pi.kp = 0.001;
     EXPECT_DOUBLE_EQ(params.pi.kp, 0.001);
 
-    params.pi.kp = 0.1;    // 大增益
+    params.pi.kp = 0.1;
     EXPECT_DOUBLE_EQ(params.pi.kp, 0.1);
 
-    // 测试不同Ki值
-    params.pi.ki = 1e-5;   // 小积分增益
+    // Test different Ki values
+    params.pi.ki = 1e-5;
     EXPECT_DOUBLE_EQ(params.pi.ki, 1e-5);
 
-    params.pi.ki = 1e-3;   // 大积分增益
+    params.pi.ki = 1e-3;
     EXPECT_DOUBLE_EQ(params.pi.ki, 1e-3);
 
-    // 测试Ki与Kp的关系（Ki通常比Kp小）
+    // Test Ki < Kp (typical relationship)
     params.pi.kp = 0.01;
     params.pi.ki = 1e-4;
-    EXPECT_LT(params.pi.ki, params.pi.kp) << "Ki should be smaller than Kp";
+    EXPECT_LT(params.pi.ki, params.pi.kp) << "Ki should typically be smaller than Kp";
 }
 
 // ============================================================================
-// 测试用例3: PAI参数配置验证
+// Test Case 3: PAI Configuration
 // ============================================================================
-TEST(CdrTest, PAI_Configuration) {
+
+TEST(CdrTest, PAIConfiguration) {
     CdrParams params;
 
-    // 测试默认值
+    // Test default values
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
     EXPECT_GT(params.pai.resolution, 0.0) << "Resolution should be positive";
     EXPECT_GT(params.pai.range, 0.0) << "Range should be positive";
 
-    // 测试不同分辨率
+    // Test different resolutions
     params.pai.resolution = 5e-13;  // 0.5ps
     EXPECT_DOUBLE_EQ(params.pai.resolution, 5e-13);
 
     params.pai.resolution = 5e-12;  // 5ps
     EXPECT_DOUBLE_EQ(params.pai.resolution, 5e-12);
 
-    // 测试不同范围
+    // Test different ranges
     params.pai.range = 1e-11;   // ±10ps
     EXPECT_DOUBLE_EQ(params.pai.range, 1e-11);
 
     params.pai.range = 1e-10;   // ±100ps
     EXPECT_DOUBLE_EQ(params.pai.range, 1e-10);
 
-    // 测试范围应大于分辨率
+    // Range should be larger than resolution
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
-    EXPECT_GT(params.pai.range, params.pai.resolution) << "Range should be larger than resolution";
+    EXPECT_GT(params.pai.range, params.pai.resolution);
 }
 
 // ============================================================================
-// 测试用例4: 相位范围限制验证
+// Test Case 4: Edge Threshold Configuration
 // ============================================================================
+
+TEST(CdrTest, EdgeThresholdConfiguration) {
+    CdrParams params;
+    
+    // Test default edge threshold
+    EXPECT_DOUBLE_EQ(params.pi.edge_threshold, 0.5);
+    
+    // Test custom thresholds
+    params.pi.edge_threshold = 0.3;
+    EXPECT_DOUBLE_EQ(params.pi.edge_threshold, 0.3);
+    
+    params.pi.edge_threshold = 0.8;
+    EXPECT_DOUBLE_EQ(params.pi.edge_threshold, 0.8);
+    
+    // Test adaptive threshold flag
+    EXPECT_FALSE(params.pi.adaptive_threshold);
+    params.pi.adaptive_threshold = true;
+    EXPECT_TRUE(params.pi.adaptive_threshold);
+}
+
+// ============================================================================
+// Test Case 5: Parameter Validation - Invalid Kp
+// ============================================================================
+
+TEST(CdrTest, ParameterValidationNegativeKp) {
+    CdrParams params;
+    params.pi.kp = -0.01;  // Invalid: negative Kp
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    std::vector<double> pattern = {1.0, -1.0};
+    
+    EXPECT_THROW({
+        CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+        delete tb;
+    }, std::invalid_argument) << "Should throw for negative Kp";
+}
+
+// ============================================================================
+// Test Case 6: Parameter Validation - Invalid Resolution
+// ============================================================================
+
+TEST(CdrTest, ParameterValidationInvalidResolution) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 0.0;  // Invalid: zero resolution
+    params.pai.range = 5e-11;
+
+    std::vector<double> pattern = {1.0, -1.0};
+    
+    EXPECT_THROW({
+        CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+        delete tb;
+    }, std::invalid_argument) << "Should throw for zero resolution";
+}
+
+// ============================================================================
+// Test Case 7: Parameter Validation - Invalid Range
+// ============================================================================
+
+TEST(CdrTest, ParameterValidationInvalidRange) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 0.0;  // Invalid: zero range
+
+    std::vector<double> pattern = {1.0, -1.0};
+    
+    EXPECT_THROW({
+        CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+        delete tb;
+    }, std::invalid_argument) << "Should throw for zero range";
+}
+
+// ============================================================================
+// Test Case 8: Phase Range Limiting
+// ============================================================================
+
 TEST(CdrTest, PhaseRangeLimit) {
     CdrParams params;
     params.pi.kp = 0.01;
@@ -183,14 +286,12 @@ TEST(CdrTest, PhaseRangeLimit) {
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
 
-    // 创建测试平台 - 使用恒定值（无边沿）
+    // Constant input (no edges) - phase should remain stable
     std::vector<double> pattern = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
 
-    // 运行仿真
     sc_core::sc_start(10, sc_core::SC_NS);
 
-    // 测试相位输出在范围内
     double phase = tb->get_phase_output();
     EXPECT_GE(phase, -params.pai.range) << "Phase should not exceed negative limit";
     EXPECT_LE(phase, params.pai.range) << "Phase should not exceed positive limit";
@@ -199,8 +300,9 @@ TEST(CdrTest, PhaseRangeLimit) {
 }
 
 // ============================================================================
-// 测试用例5: 相位量化验证
+// Test Case 9: Phase Quantization
 // ============================================================================
+
 TEST(CdrTest, PhaseQuantization) {
     CdrParams params;
     params.pi.kp = 0.01;
@@ -208,14 +310,11 @@ TEST(CdrTest, PhaseQuantization) {
     params.pai.resolution = 1e-12;  // 1ps
     params.pai.range = 5e-11;
 
-    // 创建测试平台
     std::vector<double> pattern = {1.0, -1.0, 1.0, -1.0};
     CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
 
-    // 运行仿真
     sc_core::sc_start(10, sc_core::SC_NS);
 
-    // 测试相位输出是分辨率的整数倍
     double phase = tb->get_phase_output();
     double quantized = std::round(phase / params.pai.resolution) * params.pai.resolution;
     EXPECT_NEAR(phase, quantized, 1e-15) << "Phase should be quantized to resolution";
@@ -224,189 +323,337 @@ TEST(CdrTest, PhaseQuantization) {
 }
 
 // ============================================================================
-// 测试用例6: 边沿检测验证
+// Test Case 10: Rising Edge Detection
 // ============================================================================
-TEST(CdrTest, EdgeDetection) {
+
+TEST(CdrTest, RisingEdgeDetection) {
     CdrParams params;
     params.pi.kp = 0.01;
     params.pi.ki = 1e-4;
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
 
-    // 测试上升沿（-1.0 → 1.0）
-    std::vector<double> pattern_rising = {-1.0, 1.0, 1.0, 1.0};
-    CdrBasicTestbench* tb_rising = new CdrBasicTestbench("tb_rising", params, pattern_rising);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase_rising = tb_rising->get_phase_output();
-    delete tb_rising;
+    // Rising edge: -1.0 -> 1.0
+    std::vector<double> pattern = {-1.0, 1.0, 1.0, 1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
 
-    // 测试下降沿（1.0 → -1.0）
-    std::vector<double> pattern_falling = {1.0, -1.0, -1.0, -1.0};
-    CdrBasicTestbench* tb_falling = new CdrBasicTestbench("tb_falling", params, pattern_falling);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase_falling = tb_falling->get_phase_output();
-    delete tb_falling;
+    sc_core::sc_start(5, sc_core::SC_NS);
 
-    // 测试无边沿（恒定值）
-    std::vector<double> pattern_no_edge = {1.0, 1.0, 1.0, 1.0};
-    CdrBasicTestbench* tb_no_edge = new CdrBasicTestbench("tb_no_edge", params, pattern_no_edge);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase_no_edge = tb_no_edge->get_phase_output();
-    delete tb_no_edge;
+    // After rising edge, phase error should be +1 (positive adjustment)
+    double phase = tb->get_phase_output();
+    EXPECT_GE(phase, 0.0) << "Rising edge should produce positive phase adjustment";
 
-    // 边沿检测应导致相位调整，无边沿时相位应保持不变
-    // 注意：由于CDR是闭环系统，实际行为更复杂，这里仅验证基本功能
-    SUCCEED() << "Edge detection test completed";
+    delete tb;
 }
 
 // ============================================================================
-// 测试用例7: 参数边界条件验证
+// Test Case 11: Falling Edge Detection
 // ============================================================================
+
+TEST(CdrTest, FallingEdgeDetection) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // Falling edge: 1.0 -> -1.0
+    std::vector<double> pattern = {1.0, -1.0, -1.0, -1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(5, sc_core::SC_NS);
+
+    // After falling edge, phase error should be -1 (negative adjustment)
+    double phase = tb->get_phase_output();
+    EXPECT_LE(phase, 0.0) << "Falling edge should produce negative phase adjustment";
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 12: No Edge Detection
+// ============================================================================
+
+TEST(CdrTest, NoEdgeDetection) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // No edges: constant value
+    std::vector<double> pattern = {1.0, 1.0, 1.0, 1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(10, sc_core::SC_NS);
+
+    // With no edges, phase should remain near zero (only initial conditions)
+    double phase = tb->get_phase_output();
+    EXPECT_NEAR(phase, 0.0, params.pai.resolution * 2) << "No edge should produce minimal phase change";
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 13: PI Controller Proportional Response
+// ============================================================================
+
+TEST(CdrTest, ProportionalResponse) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 0.0;  // Disable integral
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // Single rising edge
+    std::vector<double> pattern = {-1.0, 1.0, 1.0, 1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(3, sc_core::SC_NS);
+
+    // With only proportional, output should be Kp * phase_error
+    double phase = tb->get_phase_output();
+    // After one rising edge, expected ~ Kp * 1.0 = 0.01
+    double expected = params.pi.kp;
+    double quantized_expected = std::round(expected / params.pai.resolution) * params.pai.resolution;
+    EXPECT_NEAR(phase, quantized_expected, params.pai.resolution * 2);
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 14: PI Controller Integral Accumulation
+// ============================================================================
+
+TEST(CdrTest, IntegralAccumulation) {
+    CdrParams params;
+    params.pi.kp = 0.0;  // Disable proportional
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // Multiple rising edges to accumulate integral
+    std::vector<double> pattern = {-1.0, 1.0, -1.0, 1.0, -1.0, 1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(10, sc_core::SC_NS);
+
+    // Integral should accumulate over multiple edges
+    double integral = tb->get_integral_state();
+    // Multiple rising edges should accumulate positive integral
+    EXPECT_GT(integral, 0.0) << "Integral should accumulate with rising edges";
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 15: Alternating Pattern (High Transition Density)
+// ============================================================================
+
+TEST(CdrTest, AlternatingPattern) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // Alternating pattern: maximum transition density
+    std::vector<double> pattern = {1.0, -1.0, 1.0, -1.0, 1.0, -1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(10, sc_core::SC_NS);
+
+    double phase = tb->get_phase_output();
+    EXPECT_GE(phase, -params.pai.range);
+    EXPECT_LE(phase, params.pai.range);
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 16: Low Transition Density Pattern
+// ============================================================================
+
+TEST(CdrTest, LowTransitionDensity) {
+    CdrParams params;
+    params.pi.kp = 0.01;
+    params.pi.ki = 1e-4;
+    params.pai.resolution = 1e-12;
+    params.pai.range = 5e-11;
+
+    // Low transition density: long runs
+    std::vector<double> pattern = {1.0, 1.0, 1.0, -1.0, -1.0, -1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(10, sc_core::SC_NS);
+
+    double phase = tb->get_phase_output();
+    EXPECT_GE(phase, -params.pai.range);
+    EXPECT_LE(phase, params.pai.range);
+
+    delete tb;
+}
+
+// ============================================================================
+// Test Case 17: Different PI Configurations
+// ============================================================================
+
+TEST(CdrTest, DifferentPIConfigurations) {
+    std::vector<double> pattern = {1.0, -1.0, 1.0, -1.0};
+
+    // Configuration 1: Standard
+    {
+        CdrParams params1;
+        params1.pi.kp = 0.01;
+        params1.pi.ki = 1e-4;
+        params1.pai.resolution = 1e-12;
+        params1.pai.range = 5e-11;
+
+        CdrBasicTestbench* tb1 = new CdrBasicTestbench("tb1", params1, pattern);
+        sc_core::sc_start(10, sc_core::SC_NS);
+        double phase1 = tb1->get_phase_output();
+        EXPECT_GE(phase1, -params1.pai.range);
+        EXPECT_LE(phase1, params1.pai.range);
+        delete tb1;
+    }
+
+    // Configuration 2: High gain
+    {
+        CdrParams params2;
+        params2.pi.kp = 0.02;
+        params2.pi.ki = 2e-4;
+        params2.pai.resolution = 1e-12;
+        params2.pai.range = 5e-11;
+
+        CdrBasicTestbench* tb2 = new CdrBasicTestbench("tb2", params2, pattern);
+        sc_core::sc_start(10, sc_core::SC_NS);
+        double phase2 = tb2->get_phase_output();
+        EXPECT_GE(phase2, -params2.pai.range);
+        EXPECT_LE(phase2, params2.pai.range);
+        delete tb2;
+    }
+
+    // Configuration 3: Low gain
+    {
+        CdrParams params3;
+        params3.pi.kp = 0.005;
+        params3.pi.ki = 5e-5;
+        params3.pai.resolution = 1e-12;
+        params3.pai.range = 5e-11;
+
+        CdrBasicTestbench* tb3 = new CdrBasicTestbench("tb3", params3, pattern);
+        sc_core::sc_start(10, sc_core::SC_NS);
+        double phase3 = tb3->get_phase_output();
+        EXPECT_GE(phase3, -params3.pai.range);
+        EXPECT_LE(phase3, params3.pai.range);
+        delete tb3;
+    }
+}
+
+// ============================================================================
+// Test Case 18: Parameter Boundary Conditions
+// ============================================================================
+
 TEST(CdrTest, ParameterBoundaryConditions) {
     CdrParams params;
 
-    // 测试极小Kp
+    // Test very small Kp (valid)
     params.pi.kp = 1e-6;
     EXPECT_DOUBLE_EQ(params.pi.kp, 1e-6);
 
-    // 测试极大Kp
+    // Test very large Kp (valid but may cause instability)
     params.pi.kp = 1.0;
     EXPECT_DOUBLE_EQ(params.pi.kp, 1.0);
 
-    // 测试极小Ki
+    // Test very small Ki (valid)
     params.pi.ki = 1e-10;
     EXPECT_DOUBLE_EQ(params.pi.ki, 1e-10);
 
-    // 测试极大Ki
-    params.pi.ki = 1.0;
-    EXPECT_DOUBLE_EQ(params.pi.ki, 1.0);
-
-    // 测试极小分辨率
-    params.pai.resolution = 1e-15;  // 1fs
+    // Test very small resolution (valid, 1fs)
+    params.pai.resolution = 1e-15;
     EXPECT_DOUBLE_EQ(params.pai.resolution, 1e-15);
 
-    // 测试极大分辨率
-    params.pai.resolution = 1e-9;  // 1ns
+    // Test very large resolution (valid, 1ns)
+    params.pai.resolution = 1e-9;
     EXPECT_DOUBLE_EQ(params.pai.resolution, 1e-9);
 
-    // 测试极小范围
-    params.pai.range = 1e-12;  // ±1ps
+    // Test very small range (valid, ±1ps)
+    params.pai.range = 1e-12;
     EXPECT_DOUBLE_EQ(params.pai.range, 1e-12);
 
-    // 测试极大范围
-    params.pai.range = 1e-9;  // ±1ns
+    // Test very large range (valid, ±1ns)
+    params.pai.range = 1e-9;
     EXPECT_DOUBLE_EQ(params.pai.range, 1e-9);
 }
 
 // ============================================================================
-// 测试用例8: PI控制器行为验证
+// Test Case 19: Debug Interface
 // ============================================================================
-TEST(CdrTest, PI_Controller_Behavior) {
+
+TEST(CdrTest, DebugInterface) {
     CdrParams params;
     params.pi.kp = 0.01;
     params.pi.ki = 1e-4;
     params.pai.resolution = 1e-12;
     params.pai.range = 5e-11;
 
-    // 测试比例项响应
-    // 当有边沿时，比例项应立即响应
-    std::vector<double> pattern_single_edge = {0.0, 1.0, 1.0, 1.0};
-    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern_single_edge);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase = tb->get_phase_output();
+    std::vector<double> pattern = {-1.0, 1.0, 1.0, 1.0};
+    CdrBasicTestbench* tb = new CdrBasicTestbench("tb", params, pattern);
+
+    sc_core::sc_start(5, sc_core::SC_NS);
+
+    // Test debug interface methods
+    double integral = tb->get_integral_state();
+    double phase_error = tb->get_phase_error();
+    
+    // Integral should be accumulated
+    EXPECT_GE(integral, 0.0) << "Integral state should be accessible";
+    
+    // Phase error should be one of {-1, 0, 1}
+    EXPECT_TRUE(phase_error == -1.0 || phase_error == 0.0 || phase_error == 1.0)
+        << "Phase error should be -1, 0, or 1";
+
     delete tb;
-
-    // 相位输出应反映比例项和积分项的综合作用
-    EXPECT_GE(phase, -params.pai.range) << "Phase should be within range";
-    EXPECT_LE(phase, params.pai.range) << "Phase should be within range";
 }
 
 // ============================================================================
-// 测试用例9: 多种数据模式验证
+// Test Case 20: Edge Threshold Effect
 // ============================================================================
-TEST(CdrTest, MultipleDataPatterns) {
-    CdrParams params;
-    params.pi.kp = 0.01;
-    params.pi.ki = 1e-4;
-    params.pai.resolution = 1e-12;
-    params.pai.range = 5e-11;
 
-    // 测试模式1: 交替模式（最大跃变密度）
-    std::vector<double> pattern1 = {1.0, -1.0, 1.0, -1.0, 1.0, -1.0};
-    CdrBasicTestbench* tb1 = new CdrBasicTestbench("tb1", params, pattern1);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase1 = tb1->get_phase_output();
-    delete tb1;
+TEST(CdrTest, EdgeThresholdEffect) {
+    std::vector<double> pattern = {0.0, 0.4, 0.0, 0.4};  // Small transitions
+    
+    // With threshold 0.5, these should NOT trigger edge detection
+    {
+        CdrParams params;
+        params.pi.kp = 0.01;
+        params.pi.ki = 1e-4;
+        params.pi.edge_threshold = 0.5;  // Higher than transition
+        params.pai.resolution = 1e-12;
+        params.pai.range = 5e-11;
 
-    // 测试模式2: 低跃变密度
-    std::vector<double> pattern2 = {1.0, 1.0, 1.0, -1.0, -1.0, -1.0};
-    CdrBasicTestbench* tb2 = new CdrBasicTestbench("tb2", params, pattern2);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase2 = tb2->get_phase_output();
-    delete tb2;
+        CdrBasicTestbench* tb = new CdrBasicTestbench("tb_high", params, pattern);
+        sc_core::sc_start(10, sc_core::SC_NS);
+        double phase_high = tb->get_phase_output();
+        // No edges detected, phase should be near zero
+        EXPECT_NEAR(phase_high, 0.0, params.pai.resolution * 2);
+        delete tb;
+    }
+    
+    // With threshold 0.3, these SHOULD trigger edge detection
+    {
+        CdrParams params;
+        params.pi.kp = 0.01;
+        params.pi.ki = 1e-4;
+        params.pi.edge_threshold = 0.3;  // Lower than transition
+        params.pai.resolution = 1e-12;
+        params.pai.range = 5e-11;
 
-    // 测试模式3: 随机模式
-    std::vector<double> pattern3 = {1.0, -1.0, -1.0, 1.0, -1.0, 1.0};
-    CdrBasicTestbench* tb3 = new CdrBasicTestbench("tb3", params, pattern3);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase3 = tb3->get_phase_output();
-    delete tb3;
-
-    // 所有相位输出都应在合理范围内
-    EXPECT_GE(phase1, -params.pai.range);
-    EXPECT_LE(phase1, params.pai.range);
-    EXPECT_GE(phase2, -params.pai.range);
-    EXPECT_LE(phase2, params.pai.range);
-    EXPECT_GE(phase3, -params.pai.range);
-    EXPECT_LE(phase3, params.pai.range);
-}
-
-// ============================================================================
-// 测试用例10: 不同PI参数组合验证
-// ============================================================================
-TEST(CdrTest, DifferentPI_Configurations) {
-    // 配置1: 标准配置
-    CdrParams params1;
-    params1.pi.kp = 0.01;
-    params1.pi.ki = 1e-4;
-    params1.pai.resolution = 1e-12;
-    params1.pai.range = 5e-11;
-
-    std::vector<double> pattern = {1.0, -1.0, 1.0, -1.0};
-    CdrBasicTestbench* tb1 = new CdrBasicTestbench("tb1", params1, pattern);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase1 = tb1->get_phase_output();
-    delete tb1;
-
-    // 配置2: 高增益配置
-    CdrParams params2;
-    params2.pi.kp = 0.02;
-    params2.pi.ki = 2e-4;
-    params2.pai.resolution = 1e-12;
-    params2.pai.range = 5e-11;
-
-    CdrBasicTestbench* tb2 = new CdrBasicTestbench("tb2", params2, pattern);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase2 = tb2->get_phase_output();
-    delete tb2;
-
-    // 配置3: 低增益配置
-    CdrParams params3;
-    params3.pi.kp = 0.005;
-    params3.pi.ki = 5e-5;
-    params3.pai.resolution = 1e-12;
-    params3.pai.range = 5e-11;
-
-    CdrBasicTestbench* tb3 = new CdrBasicTestbench("tb3", params3, pattern);
-    sc_core::sc_start(10, sc_core::SC_NS);
-    double phase3 = tb3->get_phase_output();
-    delete tb3;
-
-    // 所有配置都应正常工作
-    EXPECT_GE(phase1, -params1.pai.range);
-    EXPECT_LE(phase1, params1.pai.range);
-    EXPECT_GE(phase2, -params2.pai.range);
-    EXPECT_LE(phase2, params2.pai.range);
-    EXPECT_GE(phase3, -params3.pai.range);
-    EXPECT_LE(phase3, params3.pai.range);
+        CdrBasicTestbench* tb = new CdrBasicTestbench("tb_low", params, pattern);
+        sc_core::sc_start(10, sc_core::SC_NS);
+        double phase_low = tb->get_phase_output();
+        // Edges detected, phase should be non-zero
+        EXPECT_NE(phase_low, 0.0) << "Edges should be detected with lower threshold";
+        delete tb;
+    }
 }
