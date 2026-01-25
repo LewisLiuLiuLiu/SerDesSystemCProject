@@ -137,9 +137,8 @@ SC_MODULE(CtleBasicTestbench) {
     }
     
     ~CtleBasicTestbench() {
-        delete src;
-        delete vdd_src;
-        delete ctle;
+        // SystemC modules are automatically managed by the simulator
+        // Do not delete them manually
     }
     
     double get_output_diff() {
@@ -239,7 +238,8 @@ TEST(CtleBasicTest, AllBasicFunctionality) {
     double cm2 = tb->get_output_cm();
     EXPECT_DOUBLE_EQ(cm1, cm2) << "Common mode stability test";
     
-    delete tb;
+    // 停止仿真，为下一个测试做准备
+    sc_core::sc_stop();
 }
 
 // ============================================================================
