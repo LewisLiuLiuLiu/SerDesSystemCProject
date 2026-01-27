@@ -4,10 +4,11 @@ Utility Functions for EyeAnalyzer
 This module provides helper functions for validation, file I/O, and common operations.
 """
 
+import csv
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 from scipy.special import erfcinv
@@ -181,3 +182,189 @@ def calculate_r_squared(y_actual: np.ndarray, y_predicted: np.ndarray) -> float:
         return 0.0
 
     return 1.0 - (ss_res / ss_tot)
+
+
+# ============================================================================
+# CSV Output Functions (per EyeAnalyzer.md specification)
+# ============================================================================
+
+def save_hist2d_csv(hist2d: np.ndarray, xedges: np.ndarray, yedges: np.ndarray,
+                    filepath: str) -> None:
+    """
+    Save 2D histogram data to CSV file.
+
+    Output format (per EyeAnalyzer.md):
+    phase_bin,amplitude_bin,density
+
+    Args:
+        hist2d: 2D histogram matrix (shape: ui_bins x amp_bins)
+        xedges: Phase bin edges
+        yedges: Amplitude bin edges
+        filepath: Output CSV file path
+    """
+    output_dir = os.path.dirname(filepath)
+    if output_dir:
+        create_output_directory(output_dir)
+
+    with open(filepath, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['phase_bin', 'amplitude_bin', 'density'])
+        for i in range(hist2d.shape[0]):
+            for j in range(hist2d.shape[1]):
+                writer.writerow([i, j, hist2d[i, j]])
+
+
+def save_psd_csv(frequencies: np.ndarray, psd_values: np.ndarray,
+                 filepath: str) -> None:
+    """
+    Save Power Spectral Density data to CSV file.
+
+    Output format (per EyeAnalyzer.md):
+    frequency_hz,psd_v2_per_hz
+
+    Args:
+        frequencies: Frequency array in Hz
+        psd_values: PSD values in V^2/Hz
+        filepath: Output CSV file path
+    """
+    output_dir = os.path.dirname(filepath)
+    if output_dir:
+        create_output_directory(output_dir)
+
+    with open(filepath, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['frequency_hz', 'psd_v2_per_hz'])
+        for freq, psd in zip(frequencies, psd_values):
+            writer.writerow([f'{freq:.6e}', f'{psd:.6e}'])
+
+
+def save_pdf_csv(amplitudes: np.ndarray, pdf_values: np.ndarray,
+                 filepath: str) -> None:
+    """
+    Save Probability Density Function data to CSV file.
+
+    Output format (per EyeAnalyzer.md):
+    amplitude_v,probability_density
+
+    Args:
+        amplitudes: Amplitude values in Volts
+        pdf_values: Probability density values
+        filepath: Output CSV file path
+    """
+    output_dir = os.path.dirname(filepath)
+    if output_dir:
+        create_output_directory(output_dir)
+
+    with open(filepath, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['amplitude_v', 'probability_density'])
+        for amp, pdf in zip(amplitudes, pdf_values):
+            writer.writerow([f'{amp:.6f}', f'{pdf:.6f}'])
+
+
+def save_jitter_distribution_csv(time_offsets: np.ndarray, probabilities: np.ndarray,
+                                  filepath: str) -> None:
+    """
+    Save jitter distribution data to CSV file.
+
+    Output format (per EyeAnalyzer.md):
+    time_offset_s,probability
+
+    Args:
+        time_offsets: Time offset values in seconds
+        probabilities: Probability values
+        filepath: Output CSV file path
+    """
+    output_dir = os.path.dirname(filepath)
+    if output_dir:
+        create_output_directory(output_dir)
+
+    with open(filepath, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['time_offset_s', 'probability'])
+        for offset, prob in zip(time_offsets, probabilities):
+            writer.writerow([f'{offset:.6e}', f'{prob:.6f}'])
+
+
+# ============================================================================
+# JSON Output Functions (per EyeAnalyzer.md specification)
+# ============================================================================
+
+def format_metrics_to_spec(metrics: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Format metrics dictionary to match EyeAnalyzer.md specification.
+
+    The output JSON structure follows the document specification:
+    - metadata: version, timestamp, dat_path, ui, ui_bins, amp_bins, measure_length
+    - eye_geometry: eye_height, eye_width, eye_area, linearity_error, optimal_sampling_phase, optimal_threshold
+    - jitter_decomposition: rj_sigma, dj_pp, tj_at_ber, target_ber, q_factor, method
+    - signal_quality: mean, rms, peak_to_peak, psd_peak_freq, psd_peak_value
+    - data_provenance: total_samples, analyzed_samples, sampling_rate, duration
+
+    Args:
+        metrics: Raw metrics dictionary from EyeAnalyzer.analyze()
+        metadata: Configuration metadata (ui, ui_bins, amp_bins, etc.)
+
+    Returns:
+        Formatted dictionary matching the specification
+    """
+    return {
+        "metadata": {
+            "version": "1.0",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "dat_path": metadata.get('dat_path', ''),
+            "ui": metadata.get('ui', 0.0),
+            "ui_bins": metadata.get('ui_bins', 128),
+            "amp_bins": metadata.get('amp_bins', 128),
+            "measure_length": metadata.get('measure_length', None)
+        },
+        "eye_geometry": {
+            "eye_height": metrics.get('eye_height', 0.0),
+            "eye_width": metrics.get('eye_width', 0.0),
+            "eye_area": metrics.get('eye_area', 0.0),
+            "linearity_error": metrics.get('linearity_error', 0.0),
+            "optimal_sampling_phase": metrics.get('optimal_sampling_phase', 0.5),
+            "optimal_threshold": metrics.get('optimal_threshold', 0.0)
+        },
+        "jitter_decomposition": {
+            "rj_sigma": metrics.get('rj_sigma', 0.0),
+            "dj_pp": metrics.get('dj_pp', 0.0),
+            "tj_at_ber": metrics.get('tj_at_ber', 0.0),
+            "target_ber": metrics.get('target_ber', 1e-12),
+            "q_factor": metrics.get('q_factor', 7.034),
+            "method": metrics.get('fit_method', 'dual-dirac')
+        },
+        "signal_quality": {
+            "mean": metrics.get('signal_mean', 0.0),
+            "rms": metrics.get('signal_rms', 0.0),
+            "peak_to_peak": metrics.get('signal_peak_to_peak', 0.0),
+            "psd_peak_freq": metrics.get('psd_peak_freq', 0.0),
+            "psd_peak_value": metrics.get('psd_peak_value', 0.0)
+        },
+        "data_provenance": {
+            "total_samples": metrics.get('total_samples', 0),
+            "analyzed_samples": metrics.get('analyzed_samples', 0),
+            "sampling_rate": metrics.get('sampling_rate', 0.0),
+            "duration": metrics.get('duration', 0.0)
+        }
+    }
+
+
+def save_metrics_json_spec(metrics: Dict[str, Any], metadata: Dict[str, Any],
+                           filepath: str) -> None:
+    """
+    Save analysis metrics to JSON file using EyeAnalyzer.md specification format.
+
+    Args:
+        metrics: Raw metrics dictionary from EyeAnalyzer.analyze()
+        metadata: Configuration metadata
+        filepath: Path to the output JSON file
+    """
+    output_data = format_metrics_to_spec(metrics, metadata)
+
+    output_dir = os.path.dirname(filepath)
+    if output_dir:
+        create_output_directory(output_dir)
+
+    with open(filepath, 'w') as f:
+        json.dump(output_data, f, indent=2)

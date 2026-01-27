@@ -38,7 +38,7 @@ class JitterDecomposer:
         >>> print(f"DJ: {metrics['dj_pp']*1e12:.2f} ps")
     """
 
-    def __init__(self, ui: float, method: str = 'dual-dirac'):
+    def __init__(self, ui: float, method: str = 'dual-dirac', psd_nperseg: int = 16384):
         """
         Initialize jitter decomposer.
 
@@ -46,6 +46,8 @@ class JitterDecomposer:
             ui: Unit interval in seconds
             method: Jitter extraction method
                    ('dual-dirac', 'tail-fit', 'auto')
+            psd_nperseg: Number of samples per segment for PSD calculation
+                        (affects frequency resolution, default: 16384)
 
         Raises:
             ValueError: If method is invalid
@@ -59,6 +61,12 @@ class JitterDecomposer:
 
         self.ui = ui
         self.method = method
+        self.psd_nperseg = psd_nperseg
+        
+        # Store last analysis data for CSV export
+        self._last_timing_offsets = None
+        self._last_histogram = None
+        self._last_bin_edges = None
 
     def extract(self, phase_array: np.ndarray, value_array: np.ndarray,
                 target_ber: float = 1e-12) -> Dict[str, Any]:
@@ -97,6 +105,12 @@ class JitterDecomposer:
         """
         # Step 1: Extract zero-crossing timing offsets
         timing_offsets = self._extract_timing_offsets(phase_array, value_array)
+        
+        # Store for CSV export
+        self._last_timing_offsets = timing_offsets
+        hist, bin_edges = np.histogram(timing_offsets, bins=200, density=True)
+        self._last_histogram = hist
+        self._last_bin_edges = bin_edges
 
         # Step 2: Select extraction method
         if self.method == 'auto':
@@ -467,7 +481,9 @@ class JitterDecomposer:
 
         # Compute PSD using Welch's method
         fs = 1.0 / self.ui  # Sampling rate
-        f, Pxx = welch(timing_offsets, fs=fs, nperseg=16384)
+        # Use configured nperseg, but ensure it doesn't exceed data length
+        nperseg = min(self.psd_nperseg, len(timing_offsets))
+        f, Pxx = welch(timing_offsets, fs=fs, nperseg=nperseg)
 
         # Detect peaks (periodic jitter appears as narrowband peaks)
         peak_threshold = np.mean(Pxx) + 3 * np.std(Pxx)
@@ -504,3 +520,25 @@ class JitterDecomposer:
             'amplitudes': pj_amplitudes.tolist(),
             'count': len(pj_frequencies)
         }
+
+    def get_jitter_distribution_data(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get jitter distribution data for CSV export.
+
+        Returns:
+            Tuple of (time_offsets_seconds, probabilities):
+            - time_offsets_seconds: Time offset values in seconds
+            - probabilities: Probability density values
+
+        Raises:
+            ValueError: If extract() has not been called yet
+        """
+        if self._last_histogram is None or self._last_bin_edges is None:
+            raise ValueError("No jitter analysis data available. Call extract() first.")
+
+        # Convert bin centers from UI to seconds
+        bin_centers = (self._last_bin_edges[:-1] + self._last_bin_edges[1:]) / 2
+        time_offsets_seconds = bin_centers * self.ui
+        probabilities = self._last_histogram
+
+        return time_offsets_seconds, probabilities
