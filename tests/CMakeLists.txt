@@ -243,6 +243,24 @@ set(CHANNEL_SPARAM_TESTS
 create_test_executables("${CHANNEL_SPARAM_TESTS}")
 
 # ============================================================================
+# TX Top 模块测试 - 独立可执行文件
+# 测试内容：基础功能、FFE效果、Driver摆幅、差分信号、饱和特性、带宽、WaveGen集成
+# ============================================================================
+
+set(TX_TOP_TESTS
+    tx_top_basic                    # 基础功能测试
+    tx_top_ffe_effect               # FFE预均衡效果测试
+    tx_top_driver_swing             # Driver输出摆幅测试
+    tx_top_differential             # 差分信号完整性测试
+    tx_top_saturation               # 饱和特性测试
+    tx_top_bandwidth                # 带宽限制测试
+    tx_top_wavegen_output           # WaveGen集成测试
+    tx_top_integration              # 全链路集成测试
+)
+
+create_test_executables("${TX_TOP_TESTS}")
+
+# ============================================================================
 # 集成测试
 # ============================================================================
 
