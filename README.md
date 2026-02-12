@@ -1,15 +1,12 @@
 # SerDes SystemC-AMS Behavioral Modeling Platform
 
-[![C++](https://img.shields.io/badge/C++-14-blue.svg)](https://isocpp.org/)
+[![C++](https://img.shields.io/badge/C++-11-blue.svg)](https://isocpp.org/)
 [![SystemC-AMS](https://img.shields.io/badge/SystemC--AMS-2.3.4-orange.svg)](https://accellera.org/community/systemc-ams)
 [![CMake](https://img.shields.io/badge/CMake-3.15+-green.svg)](https://cmake.org/)
 [![Python](https://img.shields.io/badge/Python-3.8+-yellow.svg)](https://www.python.org/)
 
 基于 **SystemC-AMS** 的高速串行链路（SerDes）行为级建模与仿真平台，支持从 TX → Channel → RX 的完整信号链仿真，包含 PRBS 生成、抖动注入、均衡、时钟恢复及 Python 眼图分析。
 
-<p align="center">
-  <img src="docs/images/serdes_architecture.png" alt="SerDes Architecture" width="700"/>
-</p>
 
 ---
 
