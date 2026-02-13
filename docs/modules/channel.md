@@ -1,5 +1,7 @@
 # Channel 模块技术文档
 
+🌐 **Languages**: [中文](channel.md) | [English](../en/modules/channel.md)
+
 **级别**：AMS 顶层模块  
 **类名**：`ChannelSParamTdf`  
 **当前版本**：v0.4 (2025-12-07)  

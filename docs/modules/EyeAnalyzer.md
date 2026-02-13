@@ -1,5 +1,7 @@
 # EyeAnalyzer模块技术文档
 
+🌐 **Languages**: [中文](EyeAnalyzer.md) | [English](../en/modules/EyeAnalyzer.md)
+
 **级别**：Python分析组件  
 **类名**：`EyeAnalyzer`  
 **当前版本**：v1.0 (2026-01-23)  

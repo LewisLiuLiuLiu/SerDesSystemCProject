@@ -5,6 +5,8 @@
 [![CMake](https://img.shields.io/badge/CMake-3.15+-green.svg)](https://cmake.org/)
 [![Python](https://img.shields.io/badge/Python-3.8+-yellow.svg)](https://www.python.org/)
 
+🌐 **Languages**: [中文](README.md) | [English](README_EN.md)
+
 基于 **SystemC-AMS** 的高速串行链路（SerDes）行为级建模与仿真平台，支持从 TX → Channel → RX 的完整信号链仿真，包含 PRBS 生成、抖动注入、均衡、时钟恢复及 Python 眼图分析。
 
 

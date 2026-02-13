@@ -1,5 +1,7 @@
 # Sampler 模块技术文档
 
+🌐 **Languages**: [中文](sampler.md) | [English](../en/modules/sampler.md)
+
 **级别**：AMS 子模块（RX）  
 **类名**：`RxSamplerTdf`  
 **当前版本**：v0.3 (2025-12-07)  

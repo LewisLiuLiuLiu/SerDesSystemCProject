@@ -1,5 +1,7 @@
 # Adaption 模块技术文档
 
+🌐 **Languages**: [中文](adaption.md) | [English](../en/modules/adaption.md)
+
 **级别**：DE 顶层模块  
 **类名**：`AdaptionDe`  
 **当前版本**：v0.1 (2025-10-30)  

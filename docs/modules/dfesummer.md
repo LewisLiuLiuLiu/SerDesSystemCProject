@@ -1,5 +1,7 @@
 # DFE Summer 模块技术文档
 
+🌐 **Languages**: [中文](dfesummer.md) | [English](../en/modules/dfesummer.md)
+
 **级别**：AMS 子模块（RX）  
 **类名**：`RxDfeSummerTdf`  
 **当前版本**：v0.5 (2025-12-21)  

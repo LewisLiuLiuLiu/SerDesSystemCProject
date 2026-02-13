@@ -1,5 +1,7 @@
 # Clock Generator 模块技术文档
 
+🌐 **Languages**: [中文](clkGen.md) | [English](../en/modules/clkGen.md)
+
 **级别**：AMS 顶层模块  
 **类名**：`ClockGenerationTdf`  
 **当前版本**：v0.1 (2026-01-20)  

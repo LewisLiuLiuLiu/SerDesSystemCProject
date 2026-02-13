@@ -1,113 +1,113 @@
-# TX Driver 模块技术文档
+# TX Driver Module Technical Documentation
 
-🌐 **Languages**: [中文](driver.md) | [English](../en/modules/driver.md)
+🌐 **Languages**: [中文](../../modules/driver.md) | [English](driver.md)
 
-**级别**：AMS 子模块（TX）  
-**类名**：`TxDriverTdf`  
-**当前版本**：v1.0 (2026-01-13)  
-**状态**：开发中
+**Level**: AMS Sub-module (TX)  
+**Class Name**: `TxDriverTdf`  
+**Current Version**: v1.0 (2026-01-13)  
+**Status**: In Development
 
 ---
 
-## 1. 概述
+## 1. Overview
 
-发送端驱动器（TX Driver）是SerDes发送链路的最后一级模块，位于WaveGen → FFE → Mux → Driver → Channel信号链的末端，主要功能是将前级模块（FFE、Mux）输出的等幅差分信号转换为具有足够驱动能力的模拟输出信号，通过传输线驱动到信道，同时需考虑输出阻抗匹配、带宽限制和非线性效应对信号质量的影响。
+The Transmitter Driver (TX Driver) is the final stage module in the SerDes transmit chain, located at the end of the WaveGen → FFE → Mux → Driver → Channel signal path. Its primary function is to convert the equal-amplitude differential signal output from the preceding modules (FFE, Mux) into an analog output signal with sufficient driving capability, driving it through the transmission line to the channel, while accounting for output impedance matching, bandwidth limitation, and nonlinearity effects on signal quality.
 
-### 1.1 设计原理
+### 1.1 Design Principles
 
-TX Driver的核心设计思想是在保证足够驱动能力的前提下，准确建模真实器件的多种非理想效应，为信道和接收端提供真实的激励信号。
+The core design philosophy of the TX Driver is to accurately model various non-ideal effects of real devices while ensuring sufficient driving capability, providing realistic excitation signals for the channel and receiver.
 
-#### 1.1.1 驱动器拓扑结构
+#### 1.1.1 Driver Topology
 
-高速SerDes发送驱动器通常采用以下几种拓扑结构：
+High-speed SerDes transmit drivers typically employ the following topologies:
 
-- **电流模式驱动器（CML, Current-Mode Logic）**：差分对管尾电流源提供恒定偏置电流，通过尾电流在负载电阻上产生电压摆幅。CML驱动器具有低摆幅（~400-800mV）、低功耗、高速度的特点，输出摆幅为 `Vswing = Itail × Rload`，广泛应用于56G及以上速率的SerDes。
+- **Current-Mode Driver (CML)（CML, Current-Mode Logic）**：A differential pair with a tail current source provides constant bias current, generating voltage swing across the load resistor. CML drivers feature low swing (~400-800mV), low power consumption, and high speed, with output swing of `Vswing = Itail × Rload`, widely used in 56G and above SerDes.
 
-- **电压模式驱动器**：CMOS反相器或推挽结构，输出摆幅接近电源电压，功耗较高但驱动能力强，适用于低速或对摆幅要求较高的应用（如DDR接口）。
+- **Voltage-Mode Driver**：CMOS inverter or push-pull structure, with output swing close to supply voltage. Higher power consumption but stronger driving capability, suitable for low-speed or high-swing applications (e.g., DDR interfaces).
 
-- **预加重驱动器（Driver with Pre-emphasis）**：在基本驱动器上叠加FIR均衡结构，通过多个并联的差分对产生不同权重的电流，在发送端提前补偿信道损耗。本模块将预加重功能独立为FFE模块，Driver仅负责最终的输出缓冲和匹配。
+- **Driver with Pre-emphasis（Driver with Pre-emphasis）**：Basic driver with overlaid FIR equalization structure, producing currents of different weights through multiple parallel differential pairs to pre-compensate channel loss at the transmit end. This module separates pre-emphasis functionality into the FFE module; the Driver only handles final output buffering and matching.
 
-#### 1.1.2 增益系数设计
+#### 1.1.2 Gain Coefficient Design
 
-直流增益 Gdc 决定输出信号摆幅与输入信号的关系，设计时需考虑以下因素：
+The DC gain Gdc determines the relationship between output signal swing and input signal. The following factors should be considered in design:
 
-- **增益建模策略**：在本行为级模型中，`dc_gain` 参数表示**内部开路增益**（不考虑阻抗匹配分压），输出阻抗匹配的电压分压效应在信号处理流程的输出阶段单独处理。这样设计的好处是增益调整、带宽限制、非线性饱和等效应与阻抗匹配效应解耦，便于独立调试。
+- **增益建模策略**：In this behavioral-level model, the `dc_gain` parameter represents the **internal open-circuit gain** (not considering impedance matching voltage division). The voltage division effect of output impedance matching is handled separately at the output stage of the signal processing flow. This design decouples gain adjustment, bandwidth limitation, and nonlinear saturation effects from impedance matching effects, facilitating independent debugging.
 
-- **阻抗匹配下的电压分压**：当驱动器输出阻抗 Zout 与传输线特性阻抗 Z0（通常50Ω）匹配时，信号在信道入口处会产生电压分压效应。若驱动器开路电压为 Voc，则实际加载到信道上的电压为 `Vchannel = Voc × Z0/(Zout + Z0)`。**对于理想匹配（Zout = Z0），信道入口摆幅为驱动器内部开路摆幅的一半，因此 dc_gain 应设置为期望信道摆幅的 2 倍**。
+- **阻抗匹配下的电压分压**：When the driver output impedance Zout matches the transmission line characteristic impedance Z0 (typically 50Ω), a voltage division effect occurs at the channel entrance. If the driver open-circuit voltage is Voc, the actual voltage loaded onto the channel is `Vchannel = Voc × Z0/(Zout + Z0)`. **For ideal matching (Zout = Z0), the channel entrance swing is half the driver internal open-circuit swing, so dc_gain should be set to 2× the desired channel swing**.
 
-- **参数配置示例**：假设输入为 ±1V（2V 峰峰值），期望信道入口处 800mV 峰峰值，理想匹配（Zout=Z0=50Ω）：
-  - 驱动器内部开路摆幅需求：800mV × 2 = 1600mV
-  - 配置：`dc_gain = 1600mV / 2000mV = 0.8`
+- **参数配置示例**：Assuming input of ±1V (2V peak-to-peak), desired 800mV peak-to-peak at channel entrance, ideal matching (Zout=Z0=50Ω):
+  - 驱动器Internal open-circuit swing requirement:800mV × 2 = 1600mV
+  - Configuration:`dc_gain = 1600mV / 2000mV = 0.8`
 
-- **典型参数范围**：PCIe Gen3/Gen4 要求信道入口 800-1200mV 差分摆幅，USB3.x 要求 800-1000mV，以太网10G/25G 通常为 500-800mV。设计时应根据目标标准和信道损耗预算确定 Gdc 和 Vswing。
+- **典型参数范围**：PCIe Gen3/Gen4 requires 800-1200mV differential swing at channel entrance; USB3.x requires 800-1000mV; Ethernet 10G/25G is typically 500-800mV. Design should determine Gdc and Vswing based on target standards and channel loss budget.
 
-#### 1.1.3 极点频率选择
+#### 1.1.3 Pole Frequency Selection
 
-带宽限制通过极点配置实现，模拟驱动器的频率响应滚降：
+Bandwidth limitation is achieved through pole configuration, simulating the frequency response roll-off of the driver:
 
-- **单极点模型**：最简单的一阶低通特性 `H(s) = Gdc / (1 + s/ωp)`，适用于快速仿真和粗略建模。极点频率 fp 通常设置在奈奎斯特频率（Bitrate/2）的1.5-2倍，例如56Gbps SerDes 的 fp 约为 40-50GHz。
+- **单极点模型**：Simple first-order low-pass characteristic `H(s) = Gdc / (1 + s/ωp)`, suitable for fast simulation and rough modeling. Pole frequency fp is typically set at 1.5-2× the Nyquist frequency (Bitrate/2); for example, 56Gbps SerDes fp is approximately 40-50GHz.
 
-- **多极点模型**：更真实地模拟寄生电容、负载效应和封装影响，传递函数为：
+- **多极点模型**：更真实地模拟寄生电容、负载效应and封装影响，传递函数为：
   ```
   H(s) = Gdc × ∏(1 + s/ωp_j)^(-1)
   ```
-  多极点模型可以构建更陡峭的滚降特性，改善带外噪声抑制，但需要更多参数标定。
+  Multi-pole models canconstructs steeper roll-off, improves out-of-band noise suppression，but require more parameter calibration。
 
-- **3dB带宽与极点关系**：对于单极点系统，3dB带宽等于极点频率 `f_3dB = fp`；对于N个相同极点的系统，`f_3dB = fp × sqrt(2^(1/N) - 1)`。设计时需平衡带宽与信号完整性，过窄的带宽会导致码间干扰（ISI）。
+- **3dB带宽与极点关系**：对于单极点系统，3dB带宽等于极点频率 `f_3dB = fp`；对于N个相同极点的系统，`f_3dB = fp × sqrt(2^(1/N) - 1)`。Design must balance bandwidth and signal integrity; too narrow bandwidth causes inter-symbol interference (ISI)。
 
-#### 1.1.4 饱和特性设计
+#### 1.1.4 Saturation Characteristic Design
 
-输出级的非线性饱和效应对大信号行为至关重要：
+Nonlinear saturation effects of the output stage are crucial for large-signal behavior:
 
-- **软饱和（Soft Saturation）**：采用双曲正切函数建模渐进式饱和特性：
+- **软饱and（Soft Saturation）**：Uses hyperbolic tangent function to model gradual saturation characteristics:
   ```
   Vout = Vswing × tanh(Vin / Vlin)
   ```
-  其中 Vlin 为线性区输入范围。软饱和具有连续导数，能更真实地模拟晶体管的跨导压缩效应，适用于行为级仿真。
+  where Vlin 为线性区Input范围。软饱and具有连续导数，能更真实地模拟晶体管的跨导压缩效应，适用于行为级仿真。
 
-- **硬饱和（Hard Clipping）**：采用简单的上下限钳位 `Vout = clamp(Vin, Vmin, Vmax)`。硬饱和计算简单但在饱和边界处导数不连续，可能导致收敛问题，适用于快速原型验证。
+- **硬饱and（Hard Clipping）**：Uses simple upper/lower limit clamping `Vout = clamp(Vin, Vmin, Vmax)`. Hard saturation is computationally simple but has discontinuous derivatives at saturation boundaries, which may cause convergence issues; suitable for rapid prototype verification.
 
-- **Vlin 参数选择**：Vlin 决定线性区范围，通常设置为 `Vlin = Vswing / α`，其中 α 为过驱动因子（overdrive factor）。典型的 α 取值为1.2-1.5，例如 α=1.2 意味着输入信号达到标称摆幅的1.2倍时才进入明显非线性区，这样可以在保持良好线性度的同时允许一定的信号余量。
+- **Vlin 参数选择**：Vlin 决定线性区范围，通常设置为 `Vlin = Vswing / α`，where α 为过驱动因子（overdrive factor）。典型的 α 取值为1.2-1.5，例如 α=1.2 意味着Input信号达到标称摆幅的1.2倍时才进入明显非线性区，这样可以在保持良好线性度的同时允许一定的信号余量。
 
-- **软饱和 vs 硬饱和对比**：软饱和更适合模拟真实器件的渐进压缩，能捕捉高阶谐波失真；硬饱和适合快速功能验证和极限情况分析。
+- **软饱and vs 硬饱and对比**：软饱and更适合模拟真实器件的渐进压缩，能捕捉高阶Harmonic distortion；硬饱and适合快速功能验证and极限情况分析。
 
-#### 1.1.5 阻抗匹配原理
+#### 1.1.5 Impedance Matching Principles
 
-输出阻抗与传输线特性阻抗的匹配是抑制信号反射、减少码间干扰（ISI）的关键：
+Matching output impedance with transmission line characteristic impedance is key to suppressing signal reflections and reducing inter-symbol interference (ISI):
 
-- **反射系数**：当驱动器输出阻抗 Zout 与传输线特性阻抗 Z0 不匹配时，会在驱动器-信道接口处产生反射，反射系数为：
+- **反射系数**：When driver output impedance Zout does not match transmission line characteristic impedance Z0, reflections occur at the driver-channel interface. The reflection coefficient is:
   ```
   ρ = (Zout - Z0) / (Zout + Z0)
   ```
-  理想匹配（Zout = Z0）时 ρ = 0，无反射；失配越严重，反射越强。
+  Ideal matching (Zout = Z0) gives ρ = 0, no reflection; the greater the mismatch, the stronger the reflection.
 
-- **ISI影响**：反射信号经过信道往返传播后叠加到后续码元上，形成ISI。在高损耗信道中，反射信号经过多次衰减，影响相对较小；但在短信道或低损耗信道中，反射可能显著恶化眼图。
+- **ISI影响**：Reflected signals propagate through the channel round-trip and superimpose on subsequent symbols, forming ISI. In high-loss channels, reflected signals attenuate through multiple passes, with relatively small impact; but in short channels or low-loss channels, reflections can significantly degrade eye diagrams.
 
-- **典型阻抗值**：高速数字信号传输通常采用50Ω差分传输线（单端25Ω），部分应用（如DDR）使用40Ω或60Ω。驱动器输出阻抗应通过片上终端电阻（On-Die Termination, ODT）或输出级尺寸调整实现精确匹配，容差通常要求在±10%以内。
+- **典型阻抗值**：高速数字信号传输通常采用50Ω差分传输线（单端25Ω），部分应用（如DDR）使用40Ω或60Ω。驱动器Output阻抗应通过On-Die Termination (ODT)（On-Die Termination, ODT）或Output级尺寸调整实现精确匹配，容差通常要求在±10%以内。
 
-- **共模阻抗**：除差分阻抗外，共模阻抗匹配也会影响EMI和共模噪声。理想情况下，差分对的共模阻抗应为差分阻抗的两倍（例如差分50Ω对应共模100Ω），但实际设计中需权衡版图对称性和成本。
+- **共模阻抗**：除差分阻抗外，共模阻抗匹配也会影响EMIand共模噪声。理想情况下，差分对的共模阻抗应为差分阻抗的两倍（例如差分50Ω对应共模100Ω），但实际设计中需权衡版图对称性and成本。
 
-### 1.2 核心特性
+### 1.2 Core Features
 
-- **差分架构**：采用完整的差分信号路径（out_p / out_n），利用差分信号的共模噪声抑制能力，抑制电源噪声、地弹和串扰。典型的共模抑制比（CMRR）要求 >40dB，确保共模噪声不会转化为差分信号损伤。
+- **差分架构**：Adopts a complete differential signal path (out_p / out_n), leveraging the common-mode noise rejection capability of differential signals to suppress power supply noise, ground bounce, and crosstalk. Typical common-mode rejection ratio (CMRR) requirement is >40dB, ensuring common-mode noise does not translate into differential signal damage.
 
-- **可配置摆幅**：输出差分摆幅（Vswing，峰峰值）可独立配置，支持不同接口标准的要求。例如PCIe要求800-1200mV，USB要求800-1000mV，用户可根据信道损耗和接收端灵敏度灵活调整。
+- **可配置摆幅**：Output differential swing (Vswing, peak-to-peak) is independently configurable, supporting requirements of different interface standards. For example, PCIe requires 800-1200mV, USB requires 800-1000mV; users can flexibly adjust based on channel loss and receiver sensitivity.
 
-- **带宽限制建模**：通过多极点传递函数 `H(s) = Gdc × ∏(1 + s/ωp_j)^(-1)` 模拟驱动器的频率响应滚降。极点数量和位置决定了高频衰减特性，用于建模寄生电容、封装效应和负载影响。
+- **带宽限制建模**：Simulates driver frequency response roll-off through multi-pole transfer function `H(s) = Gdc × ∏(1 + s/ωp_j)^(-1)`. The number and position of poles determine high-frequency attenuation characteristics, used for modeling parasitic capacitance, packaging effects, and loading impact.
 
-- **输出阻抗匹配**：可配置的输出阻抗（Zout），默认50Ω以匹配典型的高速差分传输线。阻抗失配会导致反射和ISI，反射系数 `ρ = (Zout - Z0)/(Zout + Z0)` 描述失配程度。
+- **Output阻抗匹配**：Configurable output impedance (Zout), default 50Ω to match typical high-speed differential transmission lines. Impedance mismatch causes reflections and ISI; the reflection coefficient `ρ = (Zout - Z0)/(Zout + Z0)` describes the degree of mismatch.
 
-- **非线性效应**：支持三种饱和模型——软饱和（tanh，模拟渐进压缩）、硬饱和（clamp，极限钳位）、输出不对称性（差分对失配）。这些非线性效应对眼图闭合、抖动特性和高阶谐波失真有重要影响。
+- **非线性效应**：Supports three saturation models—soft saturation (tanh, simulates gradual compression), hard saturation (clamp, limit clipping), and output asymmetry (differential pair mismatch). These nonlinear effects significantly impact eye closure, jitter characteristics, and high-order harmonic distortion.
 
-- **共模电压控制**：可配置的输出共模电压（vcm_out），确保差分信号的共模电平符合接收端输入范围要求。AC耦合链路中共模电压由信道的DC阻断特性决定，DC耦合链路则需要精确控制。
+- **共模电压控制**：Configurable output common-mode voltage (vcm_out), ensuring the common-mode level of differential signals meets receiver input range requirements. In AC-coupled links, common-mode voltage is determined by the channel DC blocking characteristics; DC-coupled links require precise control.
 
-- **压摆率限制**（可选）：模拟输出级晶体管的摆率约束（dV/dt），当信号跃变速度超过驱动器的最大摆率时，输出边沿会出现失真（边沿变缓）。该特性对于捕捉超高速信号的边沿完整性问题非常重要。
+- **压摆率限制**（可选）：Simulates slew rate constraints (dV/dt) of output stage transistors; when signal transition speed exceeds the driver maximum slew rate, output edges show distortion (edge slowing). This characteristic is crucial for capturing edge integrity issues in ultra-high-speed signals.
 
-### 1.3 典型应用场景
+### 1.3 Typical Application Scenarios
 
-TX Driver在不同SerDes应用中的摆幅和带宽要求：
+TX Driver在不同SerDes应用中的摆幅and带宽要求：
 
-| 应用标准 | 差分摆幅（Vpp） | 典型带宽（-3dB） | 输出阻抗 | 备注 |
+| Application Standard | Differential Swing (Vpp) | Typical Bandwidth (-3dB) | Output Impedance | Notes |
 |---------|----------------|-----------------|---------|------|
 | PCIe Gen3 (8Gbps) | 800-1200mV | 6-10GHz | 50Ω | AC耦合，支持去加重 |
 | PCIe Gen4 (16Gbps) | 800-1200mV | 12-20GHz | 50Ω | 强制去加重，FEC可选 |
@@ -115,96 +115,96 @@ TX Driver在不同SerDes应用中的摆幅和带宽要求：
 | 10G/25G Ethernet | 500-800mV | 8-16GHz | 50Ω | NRZ或PAM4调制 |
 | 56G SerDes (PAM4) | 400-600mV | 20-28GHz | 50Ω | 超低摆幅，高阶均衡 |
 
-> **注**：上述参数为信道入口处的摆幅（考虑阻抗匹配后的分压效应）。驱动器开路摆幅通常为表中值的2倍。
+> **Note**：The above parameters are swing at the channel entrance (considering voltage division due to impedance matching). Driver open-circuit swing is typically 2× the values in the table.
 
-### 1.4 版本历史
+### 1.4 Version History
 
-| 版本 | 日期 | 主要变更 |
+| Version | Date | Major Changes |
 |------|------|----------|
-| v0.1 | 2026-01-08 | 初始设计规格，定义核心功能与接口 |
+| v0.1 | 2026-01-08 | Initial design specification, defined core functions and interfaces |
 
 ---
 
-## 2. 模块接口
+## 2. Module Interface
 
-### 2.1 端口定义（TDF域）
+### 2.1 Port Definition (TDF Domain)
 
-TX Driver 采用差分架构，所有信号端口均为 TDF 域模拟信号。
+TX Driver adopts a differential architecture; all signal ports are TDF domain analog signals.
 
-| 端口名 | 方向 | 类型 | 说明 |
+| Port Name | Direction | Type | Description |
 |-------|------|------|------|
-| `in_p` | 输入 | double | 差分输入正端（来自FFE或Mux） |
-| `in_n` | 输入 | double | 差分输入负端 |
-| `out_p` | 输出 | double | 差分输出正端（驱动信道） |
-| `out_n` | 输出 | double | 差分输出负端 |
-| `vdd` | 输入（可选） | double | 电源电压（PSRR建模用，默认可悬空或接恒定源） |
+| `in_p` | Input | double | 差分Input正端（来自FFE或Mux） |
+| `in_n` | Input | double | 差分Input负端 |
+| `out_p` | Output | double | 差分Output正端（驱动信道） |
+| `out_n` | Output | double | 差分Output负端 |
+| `vdd` | Input（可选） | double | Supply voltage (for PSRR modeling, can be left floating or connected to constant source by default) |
 
-#### 端口连接注意事项
+#### Port Connection Notes
 
-- **差分对完整性**：必须同时连接 `in_p/in_n` 和 `out_p/out_n`，单端连接会导致共模信息丢失。
-- **VDD端口**：即使不启用PSRR功能，SystemC-AMS也要求所有声明的端口必须连接。可连接到恒定电压源（如1.0V）或信号发生器（模拟电源纹波）。
-- **负载条件**：输出端口应连接到信道模块的输入端口或测试平台的负载模块，确保阻抗匹配条件正确。
-- **采样率一致性**：所有连接的TDF模块必须工作在相同的采样率（Fs），由 `GlobalParams` 统一配置。
+- **差分对完整性**：Must connect both `in_p/in_n` and `out_p/out_n`，single-ended connections will lose common-mode information.
+- **VDD端口**：Even if PSRR functionality is not enabled, SystemC-AMS requires all declared ports to be connected. Can be connected to a constant voltage source (e.g., 1.0V) or signal generator (simulating power supply ripple).
+- **负载条件**：Output ports should be connected to channel module input ports or load modules in the testbench, ensuring correct impedance matching conditions.
+- **采样率一致性**：All connected TDF modules must operate at the same sampling rate (Fs), uniformly configured by `GlobalParams`.
 
-### 2.2 参数配置（TxDriverParams）
+### 2.2 Parameter Configuration (TxDriverParams)
 
-TX Driver 的所有可配置参数通过 `TxDriverParams` 结构定义，支持JSON/YAML配置文件加载。
+All configurable parameters of TX Driver are defined through the `TxDriverParams` structure, supporting JSON/YAML configuration file loading.
 
-#### 基本参数
+#### Basic Parameters
 
-| 参数 | 类型 | 默认值 | 单位 | 说明 |
+| Parameter | Type | Default | Unit | Description |
 |------|------|--------|------|------|
-| `dc_gain` | double | 1.0 | - | 直流增益（线性倍数，Vout_pp/Vin_pp） |
-| `vswing` | double | 0.8 | V | 差分输出摆幅（峰峰值），实际摆幅范围：±vswing/2 |
-| `vcm_out` | double | 0.6 | V | 输出共模电压，DC耦合链路需精确控制 |
-| `output_impedance` | double | 50.0 | Ω | 输出阻抗（差分），通常匹配传输线特性阻抗Z0 |
-| `poles` | vector&lt;double&gt; | [50e9] | Hz | 极点频率列表，定义带宽限制特性 |
-| `sat_mode` | string | "soft" | - | 饱和模式："soft"（tanh）、"hard"（clamp）、"none"（无饱和） |
-| `vlin` | double | 1.0 | V | 软饱和线性区参数，tanh函数的线性输入范围 |
+| `dc_gain` | double | 1.0 | - | DC gain (linear multiplier, Vout_pp/Vin_pp) |
+| `vswing` | double | 0.8 | V | 差分Output摆幅（峰峰值），实际摆幅范围：±vswing/2 |
+| `vcm_out` | double | 0.6 | V | Output共模电压，DC耦合链路需精确控制 |
+| `output_impedance` | double | 50.0 | Ω | Output阻抗（差分），通常匹配传输线特性阻抗Z0 |
+| `poles` | vector&lt;double&gt; | [50e9] | Hz | Pole frequency list, defines bandwidth limitation characteristics |
+| `sat_mode` | string | "soft" | - | 饱and模式："soft"（tanh）、"hard"（clamp）、"none"（无饱and） |
+| `vlin` | double | 1.0 | V | 软饱and线性区参数，tanh函数的线性Input范围 |
 
-#### 参数设计指导
+#### Parameter Design Guidance
 
 **dc_gain 设计**：
-- 对于归一化输入（±1V），如需800mV峰峰值输出，设置 `dc_gain = 0.8 / 2.0 = 0.4`
-- 考虑阻抗匹配分压效应：若驱动器开路增益为 G_oc，则实际信道入口增益为 `G_channel = G_oc × Z0/(Zout + Z0)`
-- 典型配置范围：0.2 ~ 0.6（对应400mV ~ 1200mV输出摆幅，假设2V峰峰值输入）
+- 对于归一化Input（±1V），如需800mV峰峰值Output，设置 `dc_gain = 0.8 / 2.0 = 0.4`
+- Consider impedance matching voltage division: if driver open-circuit gain is G_oc, actual channel entrance gain is `G_channel = G_oc × Z0/(Zout + Z0)`
+- Typical configuration range:0.2 ~ 0.6（对应400mV ~ 1200mVOutput摆幅，假设2V峰峰值Input）
 
 **vswing 设计**：
-- 标准要求：PCIe Gen3/4（800-1200mV）、USB 3.2（800-1000mV）、56G SerDes（400-600mV）
-- 高摆幅优势：改善接收端SNR，降低误码率（BER）
-- 高摆幅劣势：增加功耗（P ∝ V²），加剧EMI和串扰
-- 推荐策略：根据信道插入损耗预算和接收端灵敏度选择，留10-20%裕量
+- Standard requirements:PCIe Gen3/4（800-1200mV）、USB 3.2（800-1000mV）、56G SerDes（400-600mV）
+- High swing advantages: Improves receiver SNR, reduces bit error rate (BER)
+- 高摆幅劣势：增加功耗（P ∝ V²），加剧EMIand串扰
+- 推荐策略：根据信道插入损耗预算and接收端灵敏度选择，留10-20%裕量
 
 **poles 设计**：
-- 单极点配置：`poles = [fp]`，其中 fp 通常为奈奎斯特频率的1.5-2倍（例如56Gbps → fp ≈ 40-50GHz）
-- 多极点配置：`poles = [fp1, fp2, ...]`，构建更陡峭的滚降特性，改善带外噪声抑制
-- 极点过低风险：带宽不足导致码间干扰（ISI），眼图闭合
-- 极点过高风险：高频噪声放大，功耗增加，对信道高频损耗补偿不足
+- Single-pole configuration:`poles = [fp]`，where fp is typically 1.5-2× the Nyquist frequency (e.g., 56Gbps → fp ≈ 40-50GHz)
+- Multi-pole configuration:`poles = [fp1, fp2, ...]`，constructs steeper roll-off, improves out-of-band noise suppression
+- Low pole risk: Insufficient bandwidth causes inter-symbol interference (ISI), eye closure
+- High pole risk: Amplifies high-frequency noise, increases power consumption, insufficient compensation for channel high-frequency loss
 
-**sat_mode 和 vlin 设计**：
-- `sat_mode = "soft"`（推荐）：适用于精确建模，捕捉渐进压缩和高阶谐波失真
-- `sat_mode = "hard"`：适用于快速功能验证和极限条件分析
-- `sat_mode = "none"`：仅用于理想线性测试，实际应用必须考虑饱和效应
-- `vlin` 选择：通常设置为 `vlin = vswing / α`，α 为过驱动因子（1.2-1.5），例如 vswing=0.8V 时，vlin=0.8/1.2≈0.67V
+**sat_mode and vlin 设计**：
+- `sat_mode = "soft"`（推荐）：适用于精确建模，捕捉渐进压缩and高阶Harmonic distortion
+- `sat_mode = "hard"`：适用于快速功能验证and极限条件分析
+- `sat_mode = "none"`：仅用于理想线性测试，实际应用必须考虑饱and效应
+- `vlin` 选择：通常设置为 `vlin = vswing / α`，α 为overdrive factor (1.2-1.5), e.g., vswing=0.8V, vlin=0.8/1.2≈0.67V
 
 **output_impedance 设计**：
-- 标准值：50Ω（差分100Ω）是高速SerDes的通用选择
-- 容差要求：±10%以内，超出容差会导致反射系数 ρ 显著增加
-- 失配影响：反射系数 `ρ = (Zout - Z0)/(Zout + Z0)`，例如 Zout=60Ω、Z0=50Ω 时，ρ=9.1%
-- 调试建议：使用TDR（时域反射计）测量实际输出阻抗，确保版图寄生效应在可控范围
+- Standard value:50Ω（差分100Ω）is the universal choice for high-speed SerDes
+- Tolerance requirement: within ±10%, exceeding tolerance causes reflection coefficient ρ to increase significantly
+- Mismatch impact: reflection coefficient `ρ = (Zout - Z0)/(Zout + Z0)`，例如 Zout=60Ω、Z0=50Ω 时，ρ=9.1%
+- 调试建议：使用TDR（Time Domain Reflectometry (TDR)）测量实际Output阻抗，确保版图寄生效应在可控范围
 
-#### 非理想效应子结构（可选）
+#### Non-Ideal Effect Sub-structures (Optional)
 
-##### PSRR子结构
+##### PSRR Sub-structure
 
-电源抑制比（PSRR）路径，建模VDD纹波对差分输出的影响。
+电源抑制比（PSRR）路径，建模VDD纹波对差分Output的影响。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `enable` | bool | false | 启用PSRR建模 |
-| `gain` | double | 0.01 | PSRR路径增益（线性倍数，如0.01表示-40dB） |
-| `poles` | vector&lt;double&gt; | [1e9] | PSRR低通滤波极点频率（Hz） |
-| `vdd_nom` | double | 1.0 | 名义电源电压（V） |
+| `enable` | bool | false | Enable PSRR modeling |
+| `gain` | double | 0.01 | PSRR path gain (linear multiplier, e.g., 0.01 represents -40dB) |
+| `poles` | vector&lt;double&gt; | [1e9] | PSRR low-pass filter pole frequency (Hz) |
+| `vdd_nom` | double | 1.0 | Nominal supply voltage (V) |
 
 **工作原理**：
 ```
@@ -212,56 +212,56 @@ vdd_ripple = vdd - vdd_nom
          ↓
   PSRR传递函数 H_psrr(s) = gain / ∏(1 + s/ωp)
          ↓
-  耦合到差分输出：vout_diff += H_psrr(vdd_ripple)
+  耦合到差分Output：vout_diff += H_psrr(vdd_ripple)
 ```
 
 **设计指导**：
-- 典型PSRR目标：>40dB（gain < 0.01），高性能设计要求 >60dB（gain < 0.001）
-- 极点频率选择：通常为DC-1GHz范围，模拟电源去耦网络的低通特性
-- 测试方法：在VDD端口注入单频或宽带噪声，测量差分输出的耦合幅度
-- 应用场景：共享电源的多通道SerDes，开关电源纹波抑制验证
+- Typical PSRR target:>40dB（gain < 0.01），High-performance design requires >60dB（gain < 0.001）
+- Pole frequency selection: typically DC-1GHz range, simulating low-pass characteristics of power supply decoupling network
+- Test Method：在VDD端口Note入单频或宽带噪声，测量差分Output的耦合幅度
+- Application scenarios: Multi-channel SerDes with shared power supply, switching power supply ripple rejection verification
 
-##### 输出失衡子结构（Imbalance）
+##### Output Imbalance Sub-structure (Imbalance)
 
-建模差分对的不对称性，包括增益失配和相位偏斜。
+建模差分对的不对称性，包括增益失配and相位偏斜。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `gain_mismatch` | double | 0.0 | 差分对增益失配（%），例如2.0表示2%失配 |
-| `skew` | double | 0.0 | 差分信号相位偏斜（ps），正值表示out_p提前 |
+| `gain_mismatch` | double | 0.0 | Differential pair gain mismatch (%), e.g., 2.0 represents 2% mismatch |
+| `skew` | double | 0.0 | Differential signal phase skew (ps), positive value means out_p leads |
 
 **工作原理**：
-- 增益失配：`out_p_gain = 1 + gain_mismatch/200`，`out_n_gain = 1 - gain_mismatch/200`
-- 相位偏斜：通过fractional delay滤波器或相位插值器实现时间偏移
+- Gain mismatch:`out_p_gain = 1 + gain_mismatch/200`，`out_n_gain = 1 - gain_mismatch/200`
+- Phase skew: implemented through fractional delay filter or phase interpolator for time offset
 
 **影响分析**：
-- 增益失配影响：差模到共模转换（DM→CM），降低抗干扰能力，恶化CMRR
-- 相位偏斜影响：有效眼宽减小，抖动增加，严重时导致建立/保持时间违规
-- 典型容差：增益失配 <5%，相位偏斜 <10% UI（例如56Gbps下<1.8ps）
+- Gain mismatch impact: Differential-to-common-mode conversion (DM→CM), reduces anti-interference capability, degrades CMRR
+- Phase skew impact: Effective eye width decreases, jitter increases, may cause setup/hold time violations in severe cases
+- Typical tolerance: Gain mismatch <5%, phase skew <10% UI (e.g., <1.8ps at 56Gbps)
 
-##### 压摆率限制子结构（Slew Rate）
+##### Slew Rate Limitation Sub-structure (Slew Rate)
 
-建模输出级晶体管的摆率约束（dV/dt）。
+建模Output级晶体管的摆率约束（dV/dt）。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `enable` | bool | false | 启用压摆率限制 |
-| `max_slew_rate` | double | 1e12 | 最大压摆率（V/s），例如1V/ns = 1e9 V/s |
+| `enable` | bool | false | Enable slew rate limitation |
+| `max_slew_rate` | double | 1e12 | Maximum slew rate (V/s), e.g., 1V/ns = 1e9 V/s |
 
 **工作原理**：
-- 每个仿真步长检查输出电压变化率：`dV/dt = (Vout_new - Vout_old) / dt`
-- 若超过 `max_slew_rate`，则限制输出变化：`Vout_new = Vout_old + max_slew_rate × dt × sign(dV)`
+- 每个仿真步长检查Output电压变化率：`dV/dt = (Vout_new - Vout_old) / dt`
+- If exceeding `max_slew_rate`，则限制Output变化：`Vout_new = Vout_old + max_slew_rate × dt × sign(dV)`
 
 **设计指导**：
-- 典型值：CML驱动器约0.5-2 V/ns，CMOS驱动器约2-10 V/ns
-- 影响：压摆率不足导致边沿变缓，有效带宽降低，上升/下降时间增加
-- 测试场景：高摆幅、高速率条件下验证边沿完整性
+- Typical values: CML driver ~0.5-2 V/ns, CMOS driver ~2-10 V/ns
+- Impact: Insufficient slew rate causes edge slowing, effective bandwidth reduction, increased rise/fall time
+- Test scenarios: Verify edge integrity under high swing, high rate conditions
 
-### 2.3 配置示例
+### 2.3 Configuration Examples
 
-以下为典型应用场景的配置示例：
+Below are configuration examples for typical application scenarios:
 
-#### 示例1：PCIe Gen4 (16Gbps) 配置
+#### Example 1: PCIe Gen4 (16Gbps) Configuration
 
 ```json
 {
@@ -289,12 +289,12 @@ vdd_ripple = vdd - vdd_nom
 }
 ```
 
-**配置说明**：
-- 1.0V峰峰值摆幅满足PCIe规范（800-1200mV）
-- 25GHz极点频率约为奈奎斯特频率（8GHz）的3倍，提供足够带宽
-- 理想配置（无PSRR、无失衡），用于基准测试
+**Configuration Notes**：
+- 1.0V peak-to-peak swing meets PCIe specification (800-1200mV)
+- 25GHz pole frequency is about 3× the Nyquist frequency (8GHz), providing sufficient bandwidth
+- Ideal configuration (no PSRR, no imbalance), for baseline testing
 
-#### 示例2：56G PAM4 SerDes 配置
+#### Example 2: 56G PAM4 SerDes Configuration
 
 ```json
 {
@@ -326,14 +326,14 @@ vdd_ripple = vdd - vdd_nom
 }
 ```
 
-**配置说明**：
-- 低摆幅（500mV）PAM4配置，每个电平间隔约167mV
-- 双极点配置（45GHz + 80GHz）构建陡峭滚降，改善SNR
-- 启用PSRR建模（-46dB），模拟电源噪声影响
-- 2%增益失配 + 1.5ps偏斜，模拟工艺偏差
-- 1.5V/ns压摆率限制，验证边沿完整性
+**Configuration Notes**：
+- Low swing (500mV) PAM4 configuration, each level interval ~167mV
+- Dual-pole configuration (45GHz + 80GHz) constructs steep roll-off, improves SNR
+- Enable PSRR modeling（-46dB），模拟电源噪声影响
+- 2% gain mismatch + 1.5ps skew, simulating process variation
+- 1.5V/ns slew rate limitation, verifying edge integrity
 
-#### 示例3：PSRR测试配置
+#### Example 3: PSRR Test Configuration
 
 ```json
 {
@@ -357,79 +357,79 @@ vdd_ripple = vdd - vdd_nom
 }
 ```
 
-**测试方法**：
-- 在VDD端口注入单频正弦波（例如100MHz、1mV幅度）
-- 测量差分输出的耦合幅度 Vout_psrr
-- 计算PSRR：`PSRR_dB = 20 × log10(Vdd_ripple / Vout_psrr)`
-- 验证PSRR是否达到设计目标（-40dB → 期望耦合 <0.01mV）
+**Test Method**：
+- 在VDD端口Note入单频正弦波（例如100MHz、1mV幅度）
+- 测量差分Output的耦合幅度 Vout_psrr
+- Calculate PSRR:`PSRR_dB = 20 × log10(Vdd_ripple / Vout_psrr)`
+- Verify PSRR meets design target (-40dB → expected coupling <0.01mV)
 
 ---
 
-## 3. 核心实现机制
+## 3. Core Implementation Mechanisms
 
-### 3.1 信号处理流程
+### 3.1 Signal Processing Flow
 
-TX Driver 模块的 `processing()` 方法采用多级流水线处理架构，确保信号从输入到输出的正确转换和非理想效应的精确建模：
+TX Driver module `processing()` 方法采用多级流水线处理架构，确保信号从Input到Output的正确转换and非理想效应的精确建模：
 
 ```
-输入读取 → 增益调整 → 带宽限制 → 非线性饱和 → PSRR路径 → 差分失衡 → 压摆率限制 → 阻抗匹配 → 输出
+Input读取 → 增益调整 → 带宽限制 → 非线性饱and → PSRR路径 → 差分失衡 → 压摆率限制 → 阻抗匹配 → Output
 ```
 
-#### 步骤1 - 输入读取与差分计算
+#### Step 1 - Input Read and Differential Calculation
 
-从差分输入端口读取信号，计算差分分量和共模分量：
+从差分Input端口读取信号，计算差分分量and共模分量：
 
 ```cpp
 double vin_p = in_p.read();
 double vin_n = in_n.read();
-double vin_diff = vin_p - vin_n;       // 差分信号
-double vin_cm = 0.5 * (vin_p + vin_n); // 输入共模电压（通常不使用）
+double vin_diff = vin_p - vin_n;       // Differential signal
+double vin_cm = 0.5 * (vin_p + vin_n); // Input共模电压（通常不使用）
 ```
 
-**设计说明**：TX Driver 主要处理差分信号，输入共模信息在大多数应用中不参与计算（因为前级模块已经处理），但在AC耦合链路中可能用于共模电压控制。
+**设计说明**：TX Driver 主要处理Differential signal，Input共模信息在大多数应用中不参与计算（因为前级模块已经处理），但在AC耦合链路中可能用于共模电压控制。
 
-#### 步骤2 - 增益调整与阻抗匹配建模策略
+#### Step 2 - Gain Adjustment and Impedance Matching Modeling Strategy
 
-应用配置的直流增益 `dc_gain`，将输入差分信号放大到目标摆幅：
+Apply configured DC gain `dc_gain`，将InputDifferential signal放大到目标摆幅：
 
 ```cpp
 double vout_diff = vin_diff * dc_gain;
 ```
 
-**建模策略说明**：
+**Modeling Strategy Explanation**：
 
-在 TX Driver 的行为级建模中，增益级与输出阻抗匹配的电压分压效应是分离建模的：
+在 TX Driver 的行为级建模中，增益级与Output阻抗匹配的电压分压效应是分离建模的：
 
-- **增益级（步骤2）**：`dc_gain` 参数表示驱动器的**内部开路增益**，即不考虑阻抗匹配分压时的放大倍数
-- **阻抗匹配级（步骤8）**：输出阻抗 `Zout` 与传输线特性阻抗 `Z0` 的分压效应在输出阶段单独处理
+- **增益级（步骤2）**：`dc_gain` parameter represents the driver**内部开路增益**，i.e., the amplification factor without considering impedance matching voltage division
+- **阻抗匹配级（步骤8）**：Output阻抗 `Zout` and transmission line characteristic impedance `Z0` 的分压效应在Output阶段单独处理
 
-**为什么这样设计？**
+**Why this design?**
 
-这种分离建模有两个原因：
+This separation modeling has two reasons:
 
-1. **流程清晰**：将增益调整、带宽限制、非线性饱和等效应与阻抗匹配效应解耦，便于独立调试和参数扫描
-2. **灵活性**：可以在仿真中独立改变输出阻抗（例如验证阻抗失配影响），而无需重新计算增益参数
+1. **流程清晰**：将增益调整、带宽限制、非线性饱and等效应与阻抗匹配效应解耦，便于独立调试and参数扫描
+2. **灵活性**：可以在仿真中独立改变Output阻抗（例如验证阻抗失配影响），而无需重新计算增益参数
 
-**参数配置关系**：
+**Parameter Configuration Relationship**：
 
-对于理想阻抗匹配（`Zout = Z0 = 50Ω`），电压分压因子为 0.5，因此：
+For ideal impedance matching (`Zout = Z0 = 50Ω`），voltage division factor is 0.5, therefore:
 
-- 如果期望信道入口处的差分摆幅为 800mV（峰峰值）
-- 驱动器的内部开路摆幅应为 1600mV（2倍）
-- 若输入信号为 ±1V（2V 峰峰值），则应设置 `dc_gain = 1600mV / 2000mV = 0.8`
+- If the desired differential swing at the channel entrance is 800mV (peak-to-peak)
+- The driver internal open-circuit swing should be 1600mV (2×)
+- 若Input信号为 ±1V（2V 峰峰值），则应设置 `dc_gain = 1600mV / 2000mV = 0.8`
 
-**设计考量**：
-- 增益值由目标输出摆幅、输入信号幅度和阻抗匹配条件共同决定
-- 例如：输入为 ±1V，期望信道入口 800mV 峰峰值，理想匹配（Zout=Z0）
-  - 内部开路摆幅需求：800mV × 2 = 1600mV
-  - 配置：`dc_gain = 1600mV / 2000mV = 0.8`，`output_impedance = 50Ω`
-- 增益在饱和之前保持线性
+**Design Considerations**：
+- 增益值由目标Output摆幅、Input信号幅度and阻抗匹配条件共同决定
+- 例如：Input为 ±1V，期望信道入口 800mV 峰峰值，理想匹配（Zout=Z0）
+  - Internal open-circuit swing requirement:800mV × 2 = 1600mV
+  - Configuration:`dc_gain = 1600mV / 2000mV = 0.8`，`output_impedance = 50Ω`
+- 增益在饱and之前保持线性
 
-> **注意**：如果在配置示例中看到 `dc_gain = 0.4` 并期望 800mV 输出，说明该配置假设已经隐含了阻抗匹配分压，或者输入信号幅度不同。实际使用时请根据上述公式明确计算。
+> **Note意**：If you see `dc_gain = 0.4` 并期望 800mV Output，说明该配置假设已经隐含了阻抗匹配分压，或者Input信号幅度不同。实际使用时请根据上述公式明确计算。
 
-#### 步骤3 - 带宽限制（极点滤波）
+#### Step 3 - Bandwidth Limitation (Pole Filtering)
 
-如果配置了极点频率列表 `poles`，使用 SystemC-AMS 的 `sca_ltf_nd` 滤波器应用低通传递函数，模拟驱动器的有限带宽：
+If pole frequency list is configured `poles`，using SystemC-AMS `sca_ltf_nd` filter to apply low-pass transfer function, simulating driver finite bandwidth:
 
 ```cpp
 if (!poles.empty()) {
@@ -437,31 +437,31 @@ if (!poles.empty()) {
 }
 ```
 
-**传递函数形式**：
+**Transfer Function Form**：
 ```
            Gdc
 H(s) = ─────────────────────────────
        (1 + s/ωp1)(1 + s/ωp2)...(1 + s/ωpN)
 ```
 
-其中 ωp_i = 2π × poles[i]。
+where ωp_i = 2π × poles[i]。
 
 **设计说明**：
-- **单极点配置**：`poles = [fp]`，适用于快速仿真和初步建模，3dB 带宽等于极点频率
-- **多极点配置**：`poles = [fp1, fp2, ...]`，更真实地模拟寄生电容、封装效应和负载特性，构建更陡峭的滚降
-- **极点频率选择**：通常为奈奎斯特频率（Bitrate/2）的 1.5-2 倍，过低会导致 ISI，过高会放大高频噪声
+- **Single-pole configuration**：`poles = [fp]`，适用于快速仿真and初步建模，3dB 带宽等于极点频率
+- **Multi-pole configuration**：`poles = [fp1, fp2, ...]`，更真实地模拟寄生电容、封装效应and负载特性，构建更陡峭的滚降
+- **Pole frequency selection**：typically 1.5-2× the Nyquist frequency (Bitrate/2), too low causes ISI, too high amplifies high-frequency noise
 
-**带宽影响**：
-- 带宽不足会导致边沿变缓，增加上升/下降时间，引入 ISI
-- 带宽过宽会放大信道高频损耗，降低 SNR
+**Bandwidth Impact**：
+- Insufficient bandwidth causes edge slowing, increased rise/fall time, introduces ISI
+- Excessive bandwidth amplifies channel high-frequency loss, reduces SNR
 
-#### 步骤4 - 非线性饱和
+#### Step 4 - Nonlinear Saturation
 
-根据配置的饱和模式 `sat_mode`，应用相应的饱和特性：
+根据配置的饱and模式 `sat_mode`，应用相应的饱and特性：
 
-**4a. 软饱和（Soft Saturation）**：`sat_mode = "soft"`
+**4a. 软饱and（Soft Saturation）**：`sat_mode = "soft"`
 
-使用双曲正切函数实现渐进式饱和，模拟晶体管跨导压缩效应：
+使用双曲正切函数实现渐进式饱and，模拟晶体管跨导压缩效应：
 
 ```cpp
 double vsat = vswing / 2.0;
@@ -469,18 +469,18 @@ vout_diff = vsat * tanh(vout_diff / vlin);
 ```
 
 **工作原理**：
-- 当输入远小于 `vlin` 时，输出近似线性：`vout ≈ vsat * (vout_diff / vlin)`
-- 当输入接近或超过 `vlin` 时，增益逐渐压缩，输出渐近趋近 ±vsat
-- `tanh` 函数具有连续的一阶导数，避免了收敛问题
+- 当Input远小于 `vlin` 时，Output近似线性：`vout ≈ vsat * (vout_diff / vlin)`
+- 当Input接近或超过 `vlin` 时，增益逐渐压缩，Output渐近趋近 ±vsat
+- `tanh` function has continuous first derivative, avoiding convergence issues
 
 **参数关系**：
-- `vlin` 定义线性区输入范围，通常设置为 `vlin = vswing / α`，其中 α 为过驱动因子（1.2-1.5）
+- `vlin` 定义线性区Input范围，通常设置为 `vlin = vswing / α`，where α 为过驱动因子（1.2-1.5）
 - 例如：`vswing = 0.8V`，`α = 1.2`，则 `vlin = 0.8/1.2 ≈ 0.67V`
-- 当输入幅度达到 `vlin` 时，输出约为最大摆幅的 76%（tanh(1) ≈ 0.76）
+- 当Input幅度达到 `vlin` 时，Output约为最大摆幅的 76%（tanh(1) ≈ 0.76）
 
-**4b. 硬饱和（Hard Clipping）**：`sat_mode = "hard"`
+**4b. 硬饱and（Hard Clipping）**：`sat_mode = "hard"`
 
-简单的上下限钳位，快速实现但在边界处导数不连续：
+Simple upper/lower limit clamping, fast implementation but discontinuous derivatives at boundaries:
 
 ```cpp
 double vsat = vswing / 2.0;
@@ -488,25 +488,25 @@ vout_diff = std::max(-vsat, std::min(vsat, vout_diff));
 ```
 
 **应用场景**：
-- 快速功能验证和极限条件分析
-- 当仿真精度要求不高时使用
+- 快速功能验证and极限条件分析
+- Use when simulation accuracy requirements are not high
 
-**4c. 无饱和**：`sat_mode = "none"`
+**4c. 无饱and**：`sat_mode = "none"`
 
-理想线性模式，不施加任何幅度限制，仅用于理论分析：
+Ideal linear mode, no amplitude limitation applied, only for theoretical analysis:
 
 ```cpp
-// 不进行任何处理
+// No processing performed
 ```
 
-**饱和效应对信号质量的影响**：
-- **眼图闭合**：过度饱和会压缩信号摆幅，降低眼高
-- **谐波失真**：硬饱和产生丰富的高阶谐波，软饱和相对平滑
-- **码间干扰（ISI）**：饱和改变信号的频谱特性，可能恶化 ISI
+**饱and效应对信号质量的影响**：
+- **Eye closure**：过度饱and会压缩信号摆幅，降低眼高
+- **Harmonic distortion**：硬饱and产生丰富的高阶谐波，软饱and相对平滑
+- **Inter-symbol interference (ISI)**：饱and改变信号的频谱特性，可能恶化 ISI
 
-#### 步骤5 - PSRR路径（可选）
+#### Step 5 - PSRR Path (Optional)
 
-如果启用 PSRR 建模（`psrr.enable = true`），计算电源噪声对差分输出的耦合：
+If PSRR modeling is enabled (`psrr.enable = true`），计算电源噪声对差分Output的耦合：
 
 ```cpp
 double vdd_ripple = vdd.read() - vdd_nom;
@@ -514,53 +514,53 @@ double vpsrr = m_psrr_filter(vdd_ripple);
 vout_diff += vpsrr;
 ```
 
-**PSRR 传递函数形式**：
+**PSRR Transfer Function Form**：
 ```
                 Gpsrr
 H_psrr(s) = ─────────────────────────────
             (1 + s/ωp_psrr1)(1 + s/ωp_psrr2)...
 ```
 
-其中 `Gpsrr = psrr.gain`（例如 0.01 表示 -40dB PSRR）。
+where `Gpsrr = psrr.gain`（e.g., 0.01 represents -40dB PSRR）。
 
 **工作原理**：
-- VDD 纹波（电源噪声）通过 PSRR 路径的低通滤波器
-- 滤波后的纹波耦合到差分输出信号
-- 极点频率通常设置在 DC-1GHz 范围，模拟电源去耦网络的低通特性
+- VDD ripple (power supply noise) passes through the PSRR path low-pass filter
+- 滤波后的纹波耦合到差分Output信号
+- Pole frequency typically set in DC-1GHz range, simulating low-pass characteristics of power supply decoupling network
 
-**物理假设与简化建模**：
+**Physical Assumptions and Simplified Modeling**：
 
-本 PSRR 路径采用**简化的行为级建模方法**，直接将电源纹波耦合到差分输出：
+This PSRR path adopts**simplified behavioral-level modeling method**，直接将电源纹波耦合到差分Output：
 
 ```
 vout_diff = vout_diff_ideal + H_psrr(vdd_ripple)
 ```
 
-**真实电路中的 PSRR 机制**：
+**PSRR Mechanism in Real Circuits**：
 
-在真实的差分驱动器电路中，电源噪声影响差分输出的路径通常是：
+在真实的差分驱动器电路中，电源噪声影响差分Output的路径通常是：
 
-1. **电源噪声 → 偏置电路**：VDD 纹波改变偏置电路的工作点（如带隙基准、电流镜）
-2. **偏置电流变化 → 共模电压变化**：偏置电流的变化导致差分对的共模工作点漂移
-3. **共模变化 → 差分信号（通过失配）**：理想的差分对完全对称时，共模噪声不会转化为差分信号；但实际电路存在器件失配（晶体管尺寸、阈值电压），导致共模噪声部分转化为差分信号
+1. **Power supply noise → Bias circuit**：VDD ripple changes bias circuit operating point (e.g., bandgap reference, current mirror)
+2. **Bias current change → Common-mode voltage change**：Changes in bias current cause common-mode operating point drift of differential pair
+3. **共模变化 → Differential signal（通过失配）**：理想的差分对完全对称时，共模噪声不会转化为Differential signal；但实际电路存在器件失配（晶体管尺寸、阈值电压），导致共模噪声部分转化为Differential signal
 
-**行为级建模简化**：
+**Behavioral-Level Modeling Simplification**：
 
-在行为级仿真中，我们无需建模上述完整的物理链路，而是使用**等效增益 Gpsrr** 直接描述电源噪声到差分输出的耦合效果：
+In behavioral-level simulation, we do not need to model the complete physical chain above, but use**equivalent gain Gpsrr** 直接描述电源噪声到差分Output的耦合效果：
 
-- `Gpsrr` 是一个"黑盒"参数，综合反映了偏置电路灵敏度、共模-差分转换效率等多个因素
-- 通过调整 `Gpsrr` 的值，可以匹配实际电路测量的 PSRR 指标
-- 低通滤波器（极点频率）模拟了电源去耦网络的频率响应特性
+- `Gpsrr` is a "black box" parameter, comprehensively reflecting bias circuit sensitivity, common-mode-to-differential conversion efficiency, and other factors
+- By adjusting `Gpsrr` value, PSRR metrics of actual circuit measurements can be matched
+- Low-pass filter (pole frequency) simulates frequency response characteristics of power supply decoupling network
 
 **设计指导**：
-- 高性能 SerDes 要求 PSRR > 40dB（`gain < 0.01`）
-- 超高性能设计要求 PSRR > 60dB（`gain < 0.001`）
-- 测试方法：在 VDD 端口注入已知幅度和频率的正弦波，测量差分输出的耦合幅度
-- 参数标定：如果有实际电路的 PSRR 测试数据，可通过仿真扫描 `Gpsrr` 匹配测量结果
+- High-performance SerDes requires PSRR > 40dB (`gain < 0.01`）
+- 超High-performance design requires PSRR > 60dB（`gain < 0.001`）
+- Test Method：在 VDD 端口Note入已知幅度and频率的正弦波，测量差分Output的耦合幅度
+- Parameter calibration: If actual circuit PSRR test data is available, can scan `Gpsrr` to match measurement results
 
-#### 步骤6 - 差分失衡（可选）
+#### Step 6 - Differential Imbalance (Optional)
 
-如果配置了差分对失配参数，模拟增益失配和相位偏斜：
+如果配置了差分对失配参数，模拟增益失配and相位偏斜：
 
 **6a. 增益失配**：
 
@@ -590,14 +590,14 @@ vout_n_delayed = fractional_delay(vout_n_raw, -skew/2);
 - 偏斜严重时可能导致建立/保持时间违规
 - 典型容差：相位偏斜 < 10% UI（例如 56Gbps 下 < 1.8ps）
 
-#### 步骤7 - 压摆率限制（可选）
+#### Step 7 - Slew Rate Limitation (Optional)
 
-如果启用压摆率限制（`slew_rate.enable = true`），检查并限制输出电压的变化率。
+如果Enable slew rate limitation（`slew_rate.enable = true`），检查并限制Output电压的变化率。
 
 **伪代码示意**（实际实现可能采用更精确的数值方法）：
 
 ```cpp
-// 计算本时间步的电压变化量和变化率
+// 计算本时间步的电压变化量and变化率
 double dV = vout_diff - m_prev_vout;
 double dt = get_timestep();
 double actual_slew_rate = dV / dt;
@@ -612,14 +612,14 @@ if (std::abs(actual_slew_rate) > max_slew_rate) {
     }
 }
 
-// 更新前一时刻的输出值（在限制之后）
+// 更新前一时刻的Output值（在限制之后）
 m_prev_vout = vout_diff;
 ```
 
 **工作原理**：
-- 每个仿真时间步检查输出电压变化率 `dV/dt`
-- 如果超过配置的 `max_slew_rate`，限制输出变化幅度
-- 这会导致输出边沿变缓，上升/下降时间增加
+- 每个仿真时间步检查Output电压变化率 `dV/dt`
+- 如果超过配置的 `max_slew_rate`，限制Output变化幅度
+- 这会导致Output边沿变缓，上升/下降时间增加
 
 **压摆率与带宽关系**：
 - 对于摆幅为 V 的信号，上升时间约为 `tr ≈ V / SR`
@@ -630,9 +630,9 @@ m_prev_vout = vout_diff;
 - CML 驱动器：0.5-2 V/ns
 - CMOS 驱动器：2-10 V/ns
 
-#### 步骤8 - 阻抗匹配与输出
+#### Step 8 - Impedance Matching and Output
 
-根据输出阻抗 `Zout` 和传输线特性阻抗 `Z0` 的关系，计算实际加载到信道上的信号：
+根据Output阻抗 `Zout` and传输线特性阻抗 `Z0` 的关系，计算实际加载到信道上的信号：
 
 **8a. 理想匹配（Zout = Z0）**：
 
@@ -658,9 +658,9 @@ double rho = (Zout - Z0) / (Zout + Z0);
 - 反射系数 ρ 决定反射幅度，|ρ| < 0.1 通常可接受
 - 例如：Zout = 55Ω、Z0 = 50Ω → ρ = 4.8%
 
-**8c. 差分输出生成**：
+**8c. 差分Output生成**：
 
-基于配置的输出共模电压 `vcm_out` 和处理后的差分信号，生成最终输出：
+基于配置的Output共模电压 `vcm_out` and处理后的Differential signal，生成最终Output：
 
 ```cpp
 out_p.write(vcm_out + 0.5 * vout_diff);
@@ -668,14 +668,14 @@ out_n.write(vcm_out - 0.5 * vout_diff);
 ```
 
 **共模电压选择**：
-- DC 耦合链路：需精确控制 `vcm_out` 以匹配接收端输入共模范围（通常 VDD/2）
+- DC 耦合链路：需精确控制 `vcm_out` 以匹配接收端Input共模范围（通常 VDD/2）
 - AC 耦合链路：共模电压由信道的 DC 阻断特性自动调整，`vcm_out` 仅影响发送端工作点
 
-### 3.2 传递函数构建机制
+### 3.2 Transfer Function Construction Mechanism
 
 TX Driver 的带宽限制通过多极点传递函数实现，采用动态多项式构建方法。
 
-#### 3.2.1 传递函数形式
+#### 3.2.1 Transfer Function Form
 
 ```
            Gdc
@@ -684,11 +684,11 @@ H(s) = ────────────────────────�
         i
 ```
 
-其中：
+where：
 - `Gdc`：直流增益（`dc_gain` 参数）
 - `ωp_i = 2π × fp_i`：第 i 个极点的角频率
 
-#### 3.2.2 多项式卷积算法
+#### 3.2.2 Polynomial Convolution Algorithm
 
 构建传递函数的步骤：
 
@@ -742,7 +742,7 @@ for (size_t i = 0; i < den.size(); ++i) den_vec[i] = den[i];
 m_bw_filter = sca_tdf::sca_ltf_nd(num_vec, den_vec);
 ```
 
-#### 3.2.3 频率响应特性
+#### 3.2.3 Frequency Response Characteristics
 
 **单极点情况**（`poles = [fp]`）：
 
@@ -759,30 +759,30 @@ m_bw_filter = sca_tdf::sca_ltf_nd(num_vec, den_vec);
 
 - 如果极点分散（`fp1 ≠ fp2 ≠ ...`）：
   - 在每个极点频率附近，相位下降 45°，增益下降 3dB
-  - 总体滚降速率为各极点贡献之和
+  - 总体滚降速率为各极点贡献之and
   - 更真实地模拟实际驱动器的复杂频率响应
 
-#### 3.2.4 数值稳定性考量
+#### 3.2.4 Numerical Stability Considerations
 
 - **极点数量限制**：建议总极点数 ≤ 10，过高阶滤波器可能导致数值不稳定
 - **极点频率范围**：所有极点频率应在 1Hz ~ 1000GHz 范围内，避免病态矩阵
 - **采样率要求**：SystemC-AMS 的采样率应远高于最高极点频率，建议 `Fs ≥ 20-50 × fp_max`
 
-### 3.3 非线性饱和特性分析
+### 3.3 Nonlinear Saturation Characteristic Analysis
 
-#### 3.3.1 软饱和 vs 硬饱和对比
+#### 3.3.1 Soft Saturation vs Hard Saturation Comparison
 
-| 特性 | 软饱和（tanh） | 硬饱和（clamp） |
+| 特性 | 软饱and（tanh） | 硬饱and（clamp） |
 |------|---------------|----------------|
 | 数学函数 | `Vsat × tanh(Vin/Vlin)` | `min(max(Vin, -Vsat), Vsat)` |
 | 导数连续性 | 连续且平滑 | 在 ±Vsat 处不连续 |
-| 谐波失真 | 低（主要3次、5次谐波） | 高（丰富的高阶谐波） |
+| Harmonic distortion | 低（主要3次、5次谐波） | 高（丰富的高阶谐波） |
 | 收敛性 | 优秀 | 可能出现收敛问题 |
 | 计算复杂度 | 稍高（需计算 tanh） | 低 |
 | 物理真实性 | 高（模拟晶体管跨导压缩） | 低（理想限幅） |
 | 适用场景 | 精确行为仿真 | 快速功能验证 |
 
-#### 3.3.2 软饱和数学特性
+#### 3.3.2 Soft Saturation Mathematical Characteristics
 
 **双曲正切函数定义**：
 
@@ -797,15 +797,15 @@ tanh(x) = ──────────
 - `tanh(±∞) = ±1`（渐近值）
 - `tanh'(x) = 1 - tanh²(x)`（导数连续且有界）
 - 当 `|x| << 1` 时，`tanh(x) ≈ x`（线性区）
-- 当 `|x| >> 1` 时，`tanh(x) ≈ ±1`（饱和区）
+- 当 `|x| >> 1` 时，`tanh(x) ≈ ±1`（饱and区）
 
-**线性区与饱和区边界**：
+**线性区与饱and区边界**：
 
 - 通常认为 `|x| < 1` 为线性区（误差 < 5%）
-- `|x| > 2` 为深度饱和区（输出 > 96% 最大值）
-- 因此，`vlin` 参数定义了线性区输入范围
+- `|x| > 2` 为深度饱and区（Output > 96% 最大值）
+- 因此，`vlin` 参数定义了线性区Input范围
 
-**软饱和的输入输出关系**：
+**软饱and的InputOutput关系**：
 
 ```cpp
 Vout = Vsat * tanh(Vin / Vlin)
@@ -823,31 +823,31 @@ Vout = Vsat * tanh(Vin / Vlin)
 | 1.5     | 2.24     | 0.978          | 0.391    | 43%   |
 
 观察：
-- 输入为 `Vlin` 时，输出约为最大摆幅的 76%（`tanh(1) ≈ 0.762`）
-- 输入为 `2 × Vlin` 时，输出约为最大摆幅的 98%（深度饱和）
-- 线性度定义为 `Vout / (Vin × Gdc_ideal)`，饱和导致线性度下降
+- Input为 `Vlin` 时，Output约为最大摆幅的 76%（`tanh(1) ≈ 0.762`）
+- Input为 `2 × Vlin` 时，Output约为最大摆幅的 98%（深度饱and）
+- 线性度定义为 `Vout / (Vin × Gdc_ideal)`，饱and导致线性度下降
 
-#### 3.3.3 软饱和对信号质量的影响
+#### 3.3.3 Soft Saturation Impact on Signal Quality
 
 **频域影响**：
 
-软饱和引入非线性失真,主要产生奇次谐波（3次、5次、7次...），因为 `tanh` 是奇函数。
+软饱and引入非线性失真,主要产生奇次谐波（3次、5次、7次...），因为 `tanh` 是奇函数。
 
-对于幅度为 A、频率为 f0 的正弦输入：
+对于幅度为 A、频率为 f0 的正弦Input：
 ```
 Vin(t) = A × sin(2πf0t)
 ```
 
-输出的傅里叶级数展开（简化表示）：
+Output的傅里叶级数展开（简化表示）：
 ```
 Vout(t) ≈ C1×sin(2πf0t) + C3×sin(6πf0t) + C5×sin(10πf0t) + ...
 ```
 
-其中：
+where：
 - C1 为基波分量（主要信号）
-- C3, C5, C7... 为谐波失真分量
+- C3, C5, C7... 为Harmonic distortion分量
 
-**总谐波失真（THD）**：
+**总Harmonic distortion（THD）**：
 ```
        √(C3² + C5² + C7² + ...)
 THD = ─────────────────────────
@@ -855,25 +855,25 @@ THD = ────────────────────────�
 ```
 
 典型值：
-- 轻度饱和（Vin < Vlin）：THD < 1%
-- 中度饱和（Vin ≈ 1.5 × Vlin）：THD ≈ 5-10%
-- 重度饱和（Vin > 2 × Vlin）：THD > 20%
+- 轻度饱and（Vin < Vlin）：THD < 1%
+- 中度饱and（Vin ≈ 1.5 × Vlin）：THD ≈ 5-10%
+- 重度饱and（Vin > 2 × Vlin）：THD > 20%
 
 **时域影响**：
 
-- **眼高压缩**：饱和限制最大摆幅，降低眼高，恶化 SNR
-- **边沿失真**：饱和区增益压缩导致边沿变缓，上升/下降时间增加
-- **码间干扰（ISI）**：非线性失真改变信号频谱，可能增加 ISI
+- **眼高压缩**：饱and限制最大摆幅，降低眼高，恶化 SNR
+- **边沿失真**：饱and区增益压缩导致边沿变缓，上升/下降时间增加
+- **Inter-symbol interference (ISI)**：非线性失真改变信号频谱，可能增加 ISI
 
 **抖动影响**：
 
-饱和改变信号边沿斜率，影响过零点时刻，引入：
+饱and改变信号边沿斜率，影响过零点时刻，引入：
 - **确定性抖动（DJ）**：由信号幅度波动导致的系统性时间偏移
-- **数据依赖性抖动（DDJ）**：不同码型的饱和程度不同，导致边沿时刻变化
+- **数据依赖性抖动（DDJ）**：不同码型的饱and程度不同，导致边沿时刻变化
 
-### 3.4 SystemC-AMS 实现要点
+### 3.4 SystemC-AMS Implementation Points
 
-#### 3.4.1 TDF 模块结构
+#### 3.4.1 TDF Module Structure
 
 TX Driver 采用标准的 TDF（Timed Data Flow）模块结构：
 
@@ -905,20 +905,20 @@ private:
     
     // 状态变量
     double m_prev_vout;
-    std::mt19937 m_rng;  // 随机数生成器（噪声注入）
+    std::mt19937 m_rng;  // 随机数生成器（噪声Note入）
 };
 ```
 
-#### 3.4.2 set_attributes() 方法
+#### 3.4.2 set_attributes() Method
 
-设置模块的采样率和时间步长：
+设置模块的采样率and时间步长：
 
 ```cpp
 void TxDriverTdf::set_attributes() {
     // 从全局参数获取采样率（例如 100GHz）
     double Fs = m_params.global_params.Fs;
     
-    // 设置输入/输出端口采样率
+    // 设置Input/Output端口采样率
     in_p.set_rate(Fs);
     in_n.set_rate(Fs);
     vdd.set_rate(Fs);
@@ -940,9 +940,9 @@ void TxDriverTdf::set_attributes() {
 - 对于行为级仿真，建议 `Fs ≥ 20 × BW_max`，确保捕捉边沿细节
 - 例如：极点频率 50GHz，采样率应 ≥ 100GHz（时间步长 ≤ 10ps）
 
-#### 3.4.3 initialize() 方法
+#### 3.4.3 initialize() Method
 
-初始化滤波器对象和状态变量：
+初始化滤波器对象and状态变量：
 
 ```cpp
 void TxDriverTdf::initialize() {
@@ -959,16 +959,16 @@ void TxDriverTdf::initialize() {
     // 初始化状态变量
     m_prev_vout = 0.0;
     
-    // 初始化随机数生成器（如需噪声注入）
+    // 初始化随机数生成器（如需噪声Note入）
     m_rng.seed(m_params.global_params.seed);
 }
 ```
 
-#### 3.4.4 processing() 方法
+#### 3.4.4 processing() Method
 
 每个时间步执行的核心信号处理逻辑，实现 3.1 节描述的流水线。
 
-#### 3.4.5 滤波器对象的动态创建
+#### 3.4.5 Dynamic Creation of Filter Objects
 
 滤波器对象必须在 `initialize()` 方法中动态创建，不能在构造函数中创建：
 
@@ -983,28 +983,28 @@ void TxDriverTdf::buildTransferFunction() {
 }
 ```
 
-**注意事项**：
+**Note意事项**：
 - 滤波器对象的生命周期必须覆盖整个仿真过程
 - 析构函数中需释放动态创建的滤波器对象：`delete m_bw_filter;`
 - 如果滤波器参数在仿真过程中需要动态更新（例如AGC），可以在 `processing()` 中重新构建
 
-### 3.5 设计权衡与参数敏感度分析
+### 3.5 Design Trade-offs and Parameter Sensitivity Analysis
 
-#### 3.5.1 摆幅 vs 功耗权衡
+#### 3.5.1 Swing vs Power Trade-off
 
 **摆幅影响**：
 - 高摆幅：改善接收端 SNR，降低 BER，增强抗干扰能力
-- 低摆幅：降低功耗（P ∝ V²），减少 EMI 和串扰，适合高密度互连
+- 低摆幅：降低功耗（P ∝ V²），减少 EMI and串扰，适合高密度互连
 
 **功耗估算**：
 
-对于电流模式驱动器（CML），动态功耗主要来自负载电容充放电：
+对于Current-Mode Driver (CML)（CML），动态功耗主要来自负载电容充放电：
 ```
 P_dynamic = C_load × Vswing² × f_data
 ```
 
 示例：
-- 负载电容：1pF（包括封装、传输线、接收端输入）
+- 负载电容：1pF（包括封装、传输线、接收端Input）
 - 摆幅：0.8V
 - 数据速率：56GHz
 - 功耗：`P = 1e-12 × 0.8² × 56e9 ≈ 36mW`
@@ -1013,11 +1013,11 @@ P_dynamic = C_load × Vswing² × f_data
 - PCIe Gen3/4：采用较高摆幅（800-1200mV）以应对长距离背板损耗
 - 56G+ PAM4：采用低摆幅（400-600mV）并依赖高阶均衡技术
 
-#### 3.5.2 带宽 vs ISI 权衡
+#### 3.5.2 Bandwidth vs ISI Trade-off
 
 **带宽不足的影响**：
 - 边沿变缓，上升/下降时间增加
-- 符号间干扰（ISI）加剧，眼图闭合
+- 符号间干扰（ISI）加剧，Eye closure
 - 奈奎斯特频率附近的频率成分衰减过多
 
 **带宽过宽的影响**：
@@ -1036,25 +1036,25 @@ P_dynamic = C_load × Vswing² × f_data
 
 经验法则：极点频率设置为奈奎斯特频率的 2-3 倍。
 
-#### 3.5.3 饱和参数敏感度
+#### 3.5.3 Saturation Parameter Sensitivity
 
 **Vlin 参数的影响**：
 
-`Vlin` 定义线性区输入范围，直接影响饱和特性：
+`Vlin` 定义线性区Input范围，直接影响饱and特性：
 
-| Vlin / Vswing | 线性区范围 | 饱和特性 | 适用场景 |
+| Vlin / Vswing | 线性区范围 | 饱and特性 | 适用场景 |
 |--------------|-----------|---------|---------|
 | 1.5          | 宽        | 非常宽松，允许大过驱动 | 理想测试 |
-| 1.2（推荐）   | 中等      | 适度饱和，平衡失真和余量 | 实际应用 |
-| 1.0          | 窄        | 容易饱和，高失真 | 压力测试 |
-| 0.8          | 很窄      | 严重饱和，信号质量下降 | 极限测试 |
+| 1.2（推荐）   | 中等      | 适度饱and，平衡失真and余量 | 实际应用 |
+| 1.0          | 窄        | 容易饱and，高失真 | 压力测试 |
+| 0.8          | 很窄      | 严重饱and，信号质量下降 | 极限测试 |
 
 **设计建议**：
 - 正常应用：`Vlin = Vswing / 1.2`，允许 20% 过驱动余量
 - 低功耗设计：`Vlin = Vswing / 1.5`，牺牲一定动态范围换取更宽线性区
-- 压力测试：`Vlin = Vswing / 1.0`，验证系统在饱和条件下的性能
+- 压力测试：`Vlin = Vswing / 1.0`，验证系统在饱and条件下的性能
 
-#### 3.5.4 PSRR 设计目标
+#### 3.5.4 PSRR Design Targets
 
 不同应用场景的 PSRR 要求：
 
@@ -1073,31 +1073,31 @@ P_dynamic = C_load × Vswing² × f_data
 
 ---
 
-## 4. 测试平台架构
+## 4. Testbench Architecture
 
-### 4.1 测试平台设计思想
+### 4.1 Testbench Design Philosophy
 
-TX Driver 测试平台（`TxDriverTransientTestbench`）采用场景驱动的模块化设计,专注于验证驱动器在不同工作条件和边界状态下的信号质量、频率响应和非理想效应。核心设计理念：
+TX Driver 测试平台（`TxDriverTransientTestbench`）采用场景驱动的模块化设计,专Note于验证驱动器在不同工作条件and边界状态下的信号质量、频率响应and非理想效应。核心设计理念：
 
 1. **场景分类**：基础功能、带宽特性、非线性效应、电源抑制、阻抗匹配五大类
 2. **信号源多样化**：支持阶跃、正弦扫频、PRBS等多种激励模式
-3. **差分完整性验证**：同时监控差分和单端信号,验证共模抑制和对称性
-4. **指标自动化提取**：输出摆幅、带宽、THD、PSRR等关键指标自动计算
+3. **差分完整性验证**：同时监控差分and单端信号,验证共模抑制and对称性
+4. **指标自动化提取**：Output摆幅、带宽、THD、PSRR等关键指标自动计算
 
-### 4.2 测试场景定义
+### 4.2 Test Scenario Definitions
 
-| 场景 | 命令行参数 | 测试目标 | 主要观测指标 | 输出文件 |
+| 场景 | 命令行参数 | 测试目标 | 主要观测指标 | Output文件 |
 |------|----------|---------|-------------|---------|
-| BASIC_FUNCTION | `basic` / `0` | 基本差分放大和摆幅控制 | 输出摆幅、共模电压 | driver_tran_basic.csv |
-| BANDWIDTH_TEST | `bandwidth` / `1` | 频率响应和极点特性 | -3dB带宽、相位裕量 | driver_tran_bandwidth.csv |
-| SATURATION_TEST | `saturation` / `2` | 软/硬饱和特性对比 | THD、压缩点、眼高损失 | driver_tran_saturation.csv |
+| BASIC_FUNCTION | `basic` / `0` | 基本差分放大and摆幅控制 | Output摆幅、共模电压 | driver_tran_basic.csv |
+| BANDWIDTH_TEST | `bandwidth` / `1` | 频率响应and极点特性 | -3dB带宽、相位裕量 | driver_tran_bandwidth.csv |
+| SATURATION_TEST | `saturation` / `2` | 软/硬饱and特性对比 | THD、压缩点、眼高损失 | driver_tran_saturation.csv |
 | PSRR_TEST | `psrr` / `3` | 电源抑制比验证 | PSRR、纹波耦合幅度 | driver_tran_psrr.csv |
 | IMPEDANCE_MISMATCH | `impedance` / `4` | 阻抗失配影响分析 | 反射系数、ISI恶化 | driver_tran_impedance.csv |
 | PRBS_EYE_DIAGRAM | `eye` / `5` | 眼图质量评估 | 眼高、眼宽、抖动 | driver_tran_eye.csv |
 | IMBALANCE_TEST | `imbalance` / `6` | 差分失衡效应 | 增益失配、相位偏斜 | driver_tran_imbalance.csv |
 | SLEW_RATE_TEST | `slew` / `7` | 压摆率限制验证 | 上升时间、边沿失真 | driver_tran_slew.csv |
 
-### 4.3 测试平台模块结构
+### 4.3 Testbench Module Structure
 
 测试平台采用标准的 SystemC-AMS 模块化架构,各模块通过 TDF 端口连接：
 
@@ -1118,7 +1118,7 @@ TX Driver 测试平台（`TxDriverTransientTestbench`）采用场景驱动的模
 │  │SignalMonitor │◄──────────────────────────────────┘         │
 │  │              │                                             │
 │  │  - vchannel_p/n (差分监控)                                 │
-│  │  - vout_diff (差分信号)                                    │
+│  │  - vout_diff (Differential signal)                                    │
 │  │  - 统计指标计算                                             │
 │  └──────────────┘                                             │
 └─────────────────────────────────────────────────────────────────┘
@@ -1129,26 +1129,26 @@ TX Driver 测试平台（`TxDriverTransientTestbench`）采用场景驱动的模
 1. **信号源 → 驱动器（前向路径）**:
    - DiffSignalSource.out_p → TxDriverTdf.in_p
    - DiffSignalSource.out_n → TxDriverTdf.in_n
-   - 差分输入幅度通常配置为 ±1V（2V 峰峰值）
+   - 差分Input幅度通常配置为 ±1V（2V 峰峰值）
 
 2. **电源源 → 驱动器（PSRR路径，可选）**:
    - VddSource.vdd → TxDriverTdf.vdd
    - 名义电压（如1.0V） + 交流纹波（如10mV @ 100MHz）
 
-3. **驱动器 → 监控器（输出路径）**:
+3. **驱动器 → 监控器（Output路径）**:
    - TxDriverTdf.out_p → SignalMonitor.vchannel_p
    - TxDriverTdf.out_n → SignalMonitor.vchannel_n
-   - 监控器内部计算差分信号 `vout_diff = vchannel_p - vchannel_n`
+   - 监控器内部计算Differential signal `vout_diff = vchannel_p - vchannel_n`
 
 4. **负载建模**（隐含在阻抗匹配中）:
-   - 驱动器内部的输出阻抗 `Zout` 与传输线特性阻抗 `Z0` 分压
+   - 驱动器内部的Output阻抗 `Zout` and transmission line characteristic impedance `Z0` 分压
    - `vchannel = vout_open_circuit × Z0/(Zout + Z0)`
 
-### 4.4 信号源模块详解
+### 4.4 Signal Source Module Details
 
-#### DiffSignalSource - 差分信号源
+#### DiffSignalSource - Differential signal源
 
-为驱动器测试定制的可配置差分信号源,支持多种波形类型和精确的幅度控制。
+为驱动器测试定制的可配置Differential signal源,支持多种波形类型and精确的幅度控制。
 
 **波形类型**：
 
@@ -1184,7 +1184,7 @@ public:
         double t = get_time().to_seconds();
         double vdiff = generate_waveform(t);  // 根据类型生成波形
         
-        // 输出差分信号（默认共模电压为0）
+        // OutputDifferential signal（默认共模电压为0）
         out_p.write(vdiff / 2.0);
         out_n.write(-vdiff / 2.0);
     }
@@ -1266,7 +1266,7 @@ private:
 }
 ```
 
-**输出波形**：
+**Output波形**：
 ```
 vdd(t) = vdd_nom + amplitude × sin(2π × frequency × t + phase)
 ```
@@ -1313,19 +1313,19 @@ private:
 }
 ```
 
-### 4.5 负载与阻抗建模
+### 4.5 Load and Impedance Modeling
 
-TX Driver 的输出阻抗与传输线特性阻抗的匹配关系是测试平台的关键设计要素。
+TX Driver 的Output阻抗and transmission line characteristic impedance的匹配关系是测试平台的关键设计要素。
 
 #### 阻抗匹配原理回顾
 
-驱动器输出阻抗 `Zout` 与传输线特性阻抗 `Z0` 的关系决定了：
+驱动器Output阻抗 `Zout` and transmission line characteristic impedance `Z0` 的关系决定了：
 
 1. **电压分压效应**：
    ```
    Vchannel = Voc × Z0 / (Zout + Z0)
    ```
-   其中 `Voc` 为驱动器开路电压。
+   where `Voc` 为驱动器开路电压。
 
 2. **反射系数**：
    ```
@@ -1337,10 +1337,10 @@ TX Driver 的输出阻抗与传输线特性阻抗的匹配关系是测试平台�
 
 **方式1：驱动器内部建模**（当前实现）
 
-驱动器模块内部计算阻抗匹配效应,输出端口直接给出 `vchannel`：
+驱动器模块内部计算阻抗匹配效应,Output端口直接给出 `vchannel`：
 
 ```cpp
-// TxDriverTdf::processing() 中的输出阶段
+// TxDriverTdf::processing() 中的Output阶段
 double voltage_division_factor = Z0 / (Zout + Z0);
 vchannel_p = vout_oc_p * voltage_division_factor;
 vchannel_n = vout_oc_n * voltage_division_factor;
@@ -1354,12 +1354,12 @@ out_n.write(vchannel_n);
 - 阻抗参数集中在驱动器配置中
 
 **缺点**：
-- 不能独立测试驱动器的开路输出特性
+- 不能独立测试驱动器的开路Output特性
 - 难以模拟复杂的负载（容性、感性）
 
 **方式2：独立负载模块**（未来扩展）
 
-在驱动器输出端连接独立的负载模块,模拟传输线端接：
+在驱动器Output端连接独立的负载模块,模拟传输线端接：
 
 ```
 TxDriverTdf.out_p/n → LoadModule.in_p/n → SignalMonitor.vchannel_p/n
@@ -1403,16 +1403,16 @@ LoadModule 可实现：
 
 **预期观测**：
 - 反射系数计算值与理论值对比
-- 眼图闭合程度与反射强度的关系
+- Eye closure程度与反射强度的关系
 - ISI恶化量化分析
 
-### 4.6 监测与追踪
+### 4.6 Monitoring and Tracing
 
 #### SignalMonitor - 信号监控模块
 
-监控驱动器输出的差分和单端信号,实时计算关键性能指标。
+监控驱动器Output的差分and单端信号,实时计算关键性能指标。
 
-**输入端口**：
+**Input端口**：
 
 ```cpp
 class SignalMonitor : public sca_tdf::sca_module {
@@ -1421,7 +1421,7 @@ public:
     sca_tdf::sca_in<double> vchannel_n;
     sca_tdf::sca_in<double> vdd_ref;  // 可选，用于PSRR分析
     
-    // 输出端口（可选，用于级联测试）
+    // Output端口（可选，用于级联测试）
     sca_tdf::sca_out<double> vout_diff;
     
     void processing() {
@@ -1441,7 +1441,7 @@ private:
     struct Statistics {
         double vdiff_max, vdiff_min;  // 差分摆幅
         double vcm_mean, vcm_std;     // 共模电压统计
-        double thd;                   // 总谐波失真
+        double thd;                   // 总Harmonic distortion
         // ... 其他指标
     } m_stats;
 };
@@ -1452,33 +1452,33 @@ private:
 | 指标类别 | 指标名称 | 单位 | 说明 |
 |---------|---------|-----|------|
 | 幅度特性 | 差分摆幅 (Vswing) | V | 峰峰值，Vdiff_max - Vdiff_min |
-| 幅度特性 | 输出共模电压 | V | 单端信号的平均值 |
-| 幅度特性 | 共模抑制比 (CMRR) | dB | `20log(Vdiff_rms / Vcm_rms)` |
+| 幅度特性 | Output共模电压 | V | 单端信号的平均值 |
+| 幅度特性 | Common-Mode Rejection Ratio (CMRR) (CMRR) | dB | `20log(Vdiff_rms / Vcm_rms)` |
 | 频域特性 | -3dB带宽 | Hz | 幅频响应下降到-3dB的频率 |
-| 频域特性 | 总谐波失真 (THD) | % | `sqrt(sum(Cn²)) / C1 × 100%` |
+| 频域特性 | 总Harmonic distortion (THD) | % | `sqrt(sum(Cn²)) / C1 × 100%` |
 | 时域特性 | 上升时间 (tr) | s | 10%-90%幅度变化时间 |
 | 时域特性 | 下降时间 (tf) | s | 90%-10%幅度变化时间 |
 | 非理想 | PSRR | dB | `20log(Vdd_ripple / Vout_coupled)` |
 | 非理想 | 增益失配 | % | `(Gain_p - Gain_n) / (Gain_p + Gain_n) × 100%` |
-| 非理想 | 相位偏斜 | s | 差分信号过零点时间差 |
+| 非理想 | 相位偏斜 | s | Differential signal过零点时间差 |
 
 #### 追踪文件生成
 
-使用 SystemC-AMS 的 `sca_create_tabular_trace_file` 生成时域波形数据：
+using SystemC-AMS `sca_create_tabular_trace_file` 生成时域波形数据：
 
 ```cpp
 // 在testbench的elaboration阶段
 sca_util::sca_trace_file* tf = sca_util::sca_create_tabular_trace_file("driver_tran.dat");
 
-// 追踪输入信号
+// 追踪Input信号
 sca_util::sca_trace(tf, diff_source->out_p, "vin_p");
 sca_util::sca_trace(tf, diff_source->out_n, "vin_n");
 
-// 追踪输出信号
+// 追踪Output信号
 sca_util::sca_trace(tf, dut->out_p, "vchannel_p");
 sca_util::sca_trace(tf, dut->out_n, "vchannel_n");
 
-// 追踪差分信号（由监控器计算）
+// 追踪Differential signal（由监控器计算）
 sca_util::sca_trace(tf, monitor->vout_diff, "vout_diff");
 
 // 追踪电源（PSRR测试）
@@ -1488,7 +1488,7 @@ sca_util::sca_trace(tf, vdd_source->vdd, "vdd");
 sca_util::sca_close_tabular_trace_file(tf);
 ```
 
-**输出文件格式**：
+**Output文件格式**：
 
 ```
 # time(s)    vin_p(V)    vin_n(V)    vchannel_p(V)    vchannel_n(V)    vout_diff(V)    vdd(V)
@@ -1498,14 +1498,14 @@ sca_util::sca_close_tabular_trace_file(tf);
 ...
 ```
 
-### 4.7 场景配置详解
+### 4.7 Scenario Configuration Details
 
 #### BASIC_FUNCTION - 基础功能验证
 
 **测试目标**：
 - 验证差分放大功能
-- 确认输出摆幅符合配置
-- 检查输出共模电压准确性
+- 确认Output摆幅符合配置
+- 检查Output共模电压准确性
 - 验证增益计算正确性
 
 **激励配置**：
@@ -1534,9 +1534,9 @@ sca_util::sca_close_tabular_trace_file(tf);
 ```
 
 **预期结果**：
-- 输入：±1V 阶跃（2V峰峰值）
-- 输出差分摆幅：800mV（考虑阻抗匹配后）
-- 输出共模电压：600mV（Vp和Vn的平均值）
+- Input：±1V 阶跃（2V峰峰值）
+- Output差分摆幅：800mV（考虑阻抗匹配后）
+- Output共模电压：600mV（VpandVn的平均值）
 - 增益验证：`Vout_diff / Vin_diff ≈ 0.4`（理想匹配时）
 
 **通过标准**：
@@ -1611,11 +1611,11 @@ plt.savefig('driver_bandwidth.png')
 - 滚降速率 ≈ -20dB/decade
 - 相位裕量 > 45°（稳定性指标）
 
-#### SATURATION_TEST - 饱和特性验证
+#### SATURATION_TEST - 饱and特性验证
 
 **测试目标**：
-- 对比软饱和与硬饱和的输入输出关系
-- 测量总谐波失真（THD）
+- 对比软饱and与硬饱and的InputOutput关系
+- 测量总Harmonic distortion（THD）
 - 确定1dB压缩点
 - 验证vlin参数的影响
 
@@ -1646,7 +1646,7 @@ from scipy.fft import fft
 
 def calculate_thd(signal, fs, f0):
     """
-    计算总谐波失真
+    计算总Harmonic distortion
     
     参数：
     signal: 时域信号
@@ -1657,7 +1657,7 @@ def calculate_thd(signal, fs, f0):
     spectrum = np.abs(fft(signal)[:N//2])
     freqs = np.fft.fftfreq(N, 1/fs)[:N//2]
     
-    # 查找基波和谐波峰值
+    # 查找基波and谐波峰值
     def find_peak(f_target):
         idx = np.argmin(np.abs(freqs - f_target))
         return spectrum[idx]
@@ -1678,9 +1678,9 @@ print(f"Hard Saturation THD: {thd_hard:.2f}%")
 ```
 
 **预期结果**：
-- 软饱和 THD < 5%（中等过驱动）
-- 硬饱和 THD > 20%（相同过驱动）
-- 1dB压缩点约在输入 = vlin 附近
+- 软饱and THD < 5%（中等过驱动）
+- 硬饱and THD > 20%（相同过驱动）
+- 1dB压缩点约在Input = vlin 附近
 
 #### PSRR_TEST - 电源抑制比验证
 
@@ -1725,7 +1725,7 @@ def calculate_psrr(vdd_ripple, vout_coupled):
     
     参数：
     vdd_ripple: 电源纹波幅度（V）
-    vout_coupled: 输出耦合幅度（V）
+    vout_coupled: Output耦合幅度（V）
     
     返回：
     PSRR (dB)
@@ -1749,7 +1749,7 @@ print(f"PSRR @ {f_ripple/1e6}MHz: {psrr:.1f} dB")
 
 **测试目标**：
 - 采集眼图数据
-- 测量眼高和眼宽
+- 测量眼高and眼宽
 - 评估抖动特性
 - 验证ISI影响
 
@@ -1815,7 +1815,7 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 - 眼宽 > 70% UI
 - RMS抖动 < 2ps
 
-### 4.8 testbench实现要点
+### 4.8 Testbench Implementation Points
 
 #### main函数结构
 
@@ -1856,7 +1856,7 @@ int sc_main(int argc, char* argv[]) {
     // 6. 运行仿真
     sc_core::sc_start(params.simulation.duration, sc_core::SC_SEC);
     
-    // 7. 输出统计结果
+    // 7. Output统计结果
     monitor.print_statistics();
     
     // 8. 清理
@@ -1891,7 +1891,7 @@ public:
             }
         }
         
-        // 检查饱和模式
+        // 检查饱and模式
         if (params.sat_mode == "soft" && params.vlin <= 0) {
             throw std::invalid_argument("vlin must be positive for soft saturation");
         }
@@ -1908,13 +1908,13 @@ public:
 
 ---
 
-## 6. 运行指南
+## 6. Running Guide
 
-### 6.1 环境准备
+### 6.1 Environment Preparation
 
-#### 6.1.1 SystemC和SystemC-AMS安装
+#### 6.1.1 SystemCandSystemC-AMS安装
 
-TX Driver 模块基于 SystemC 和 SystemC-AMS 库开发，运行测试前需要正确安装这些依赖库。
+TX Driver 模块基于 SystemC and SystemC-AMS 库开发，运行测试前需要正确安装这些依赖库。
 
 **SystemC 安装**：
 
@@ -1961,7 +1961,7 @@ export SYSTEMC_AMS_HOME=/usr/local/systemc-ams-2.3.4
 export LD_LIBRARY_PATH=$SYSTEMC_HOME/lib-linux64:$SYSTEMC_AMS_HOME/lib-linux64:$LD_LIBRARY_PATH
 ```
 
-> **注意**：macOS 平台库目录可能为 `lib-macosx64`，请根据实际调整。
+> **Note意**：macOS 平台库目录可能为 `lib-macosx64`，请根据实际调整。
 
 **验证安装**：
 
@@ -1979,7 +1979,7 @@ ls $SYSTEMC_AMS_HOME/include/systemc-ams.h
 
 **支持的编译器**：
 
-| 编译器 | 最低版本 | 推荐版本 | 备注 |
+| 编译器 | 最低版本 | 推荐版本 | 备Note |
 |-------|---------|---------|------|
 | GCC   | 6.3     | 9.0+    | 需支持 C++14 |
 | Clang | 5.0     | 10.0+   | macOS 默认 |
@@ -2002,14 +2002,14 @@ echo "int main() { auto lambda = [](auto x) { return x + 1; }; return lambda(1);
 **C++14 特性要求**：
 
 本项目使用以下 C++14 特性：
-- Lambda 表达式和 auto 类型推导
-- 移动语义和右值引用
-- `std::unique_ptr` 和 `std::shared_ptr`
+- Lambda 表达式and auto 类型推导
+- 移动语义and右值引用
+- `std::unique_ptr` and `std::shared_ptr`
 - 范围 for 循环
 
 #### 6.1.3 Python 依赖（后处理分析）
 
-测试结果的波形可视化和指标分析需要 Python 环境。
+测试结果的波形可视化and指标分析需要 Python 环境。
 
 **推荐配置**：
 - Python 3.7+（推荐 3.9+）
@@ -2075,21 +2075,21 @@ serdes/
 
 **关键目录说明**：
 
-- `include/ams/`：AMS 模块头文件，定义端口和公共接口
+- `include/ams/`：AMS 模块头文件，定义端口and公共接口
 - `src/ams/`：AMS 模块实现，包含信号处理逻辑
-- `tb/tx/driver/`：Driver 专用测试平台和辅助模块
+- `tb/tx/driver/`：Driver 专用测试平台and辅助模块
 - `config/`：JSON 配置文件，每个测试场景一个配置
-- `scripts/`：Python 后处理脚本，用于波形分析和指标计算
+- `scripts/`：Python 后处理脚本，用于波形分析and指标计算
 
 ---
 
-### 6.2 构建步骤
+### 6.2 Build Steps
 
-项目支持两种构建方式：CMake（推荐）和 Makefile（传统）。
+项目支持两种构建方式：CMake（推荐）and Makefile（传统）。
 
 #### 6.2.1 使用 CMake（推荐方式）
 
-CMake 提供更好的跨平台支持和依赖管理。
+CMake 提供更好的跨平台支持and依赖管理。
 
 **步骤1 - 配置构建**：
 
@@ -2185,7 +2185,7 @@ make driver_tb
 **步骤3 - 查看构建信息**：
 
 ```bash
-# 显示构建配置和路径
+# 显示构建配置and路径
 make info
 ```
 
@@ -2275,7 +2275,7 @@ ln -s lib-macosx64 lib-linux64
 
 ---
 
-### 6.3 运行 Testbench
+### 6.3 Running Testbench
 
 Driver 测试平台支持多个测试场景，通过命令行参数选择。
 
@@ -2295,7 +2295,7 @@ cd build
 |---------|---------------|-------------|------|
 | BASIC_FUNCTION | `basic` | `0` | 基本功能验证 |
 | BANDWIDTH_TEST | `bandwidth` | `1` | 频率响应测试 |
-| SATURATION_TEST | `saturation` | `2` | 饱和特性测试 |
+| SATURATION_TEST | `saturation` | `2` | 饱and特性测试 |
 | PSRR_TEST | `psrr` | `3` | 电源抑制比测试 |
 | IMPEDANCE_MISMATCH | `impedance` | `4` | 阻抗失配测试 |
 | PRBS_EYE_DIAGRAM | `eye` | `5` | 眼图测试 |
@@ -2310,7 +2310,7 @@ cd build
 # 运行基本功能测试
 ./bin/driver_tran_tb basic
 
-# 预期输出（控制台）：
+# 预期Output（控制台）：
 # SystemC 2.3.4 --- Jan  8 2026 10:30:15
 # Copyright (c) 1996-2023 by all Contributors
 # [INFO] Loading config: config/driver_test_basic.json
@@ -2323,7 +2323,7 @@ cd build
 # [PASS] All metrics within tolerance
 ```
 
-**输出文件**：
+**Output文件**：
 - `driver_tran_basic.dat`：时域波形数据（tabular格式）
 - `driver_basic_summary.json`：性能指标汇总
 
@@ -2333,7 +2333,7 @@ cd build
 # 运行带宽测试
 ./bin/driver_tran_tb bandwidth
 
-# 预期输出：
+# 预期Output：
 # [INFO] Frequency sweep: 1 MHz to 100 GHz (log scale)
 # [INFO] Simulation completed
 # [RESULT] -3dB Bandwidth: 49.8 GHz (target: 50 GHz)
@@ -2346,16 +2346,16 @@ cd build
 python3 ../scripts/analyze_driver_bandwidth.py driver_tran_bandwidth.dat
 
 # 生成 Bode 图
-# 输出：driver_bandwidth_bode.png
+# Output：driver_bandwidth_bode.png
 ```
 
-**场景3：饱和特性测试（SATURATION_TEST）**
+**场景3：饱and特性测试（SATURATION_TEST）**
 
 ```bash
-# 运行饱和测试
+# 运行饱and测试
 ./bin/driver_tran_tb saturation
 
-# 预期输出：
+# 预期Output：
 # [INFO] Testing soft saturation mode...
 # [RESULT] THD @ 1 GHz: 4.8% (input: 1.2V)
 # [INFO] Testing hard saturation mode...
@@ -2368,7 +2368,7 @@ python3 ../scripts/analyze_driver_bandwidth.py driver_tran_bandwidth.dat
 # 计算 THD
 python3 ../scripts/calculate_driver_thd.py driver_tran_saturation.dat
 
-# 输出：driver_thd_vs_amplitude.png
+# Output：driver_thd_vs_amplitude.png
 ```
 
 **场景4：PSRR测试（PSRR_TEST）**
@@ -2377,7 +2377,7 @@ python3 ../scripts/calculate_driver_thd.py driver_tran_saturation.dat
 # 运行 PSRR 测试
 ./bin/driver_tran_tb psrr
 
-# 预期输出：
+# 预期Output：
 # [INFO] Injecting VDD ripple: 10 mV @ 100 MHz
 # [RESULT] PSRR @ 100 MHz: -40.2 dB (target: -40 dB)
 # [RESULT] Coupled amplitude: 0.098 mV
@@ -2389,7 +2389,7 @@ python3 ../scripts/calculate_driver_thd.py driver_tran_saturation.dat
 # 运行眼图测试（较长时间）
 ./bin/driver_tran_tb eye
 
-# 预期输出：
+# 预期Output：
 # [INFO] Running PRBS31 pattern @ 56 Gbps...
 # [INFO] Collecting eye diagram data (10 us)...
 # [RESULT] Eye Height: 312 mV (target: >300 mV)
@@ -2402,7 +2402,7 @@ python3 ../scripts/calculate_driver_thd.py driver_tran_saturation.dat
 # 使用 EyeAnalyzer 工具生成眼图
 python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 
-# 输出：driver_eye_diagram.png, driver_eye_metrics.json
+# Output：driver_eye_diagram.png, driver_eye_metrics.json
 ```
 
 **场景6：阻抗失配测试（IMPEDANCE_MISMATCH）**
@@ -2411,7 +2411,7 @@ python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 # 运行阻抗失配测试
 ./bin/driver_tran_tb impedance
 
-# 预期输出：
+# 预期Output：
 # [INFO] Testing impedance mismatch scenarios...
 # [RESULT] Ideal match (50Ω): Reflection coef = 0.0%
 # [RESULT] 10% high (55Ω): Reflection coef = 4.8%
@@ -2424,7 +2424,7 @@ python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 # 运行差分失衡测试
 ./bin/driver_tran_tb imbalance
 
-# 预期输出：
+# 预期Output：
 # [RESULT] Gain mismatch: 2.0% (P-gain: 1.01, N-gain: 0.99)
 # [RESULT] Phase skew: 1.5 ps
 # [RESULT] CMRR degradation: -3.2 dB
@@ -2436,7 +2436,7 @@ python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 # 运行压摆率限制测试
 ./bin/driver_tran_tb slew
 
-# 预期输出：
+# 预期Output：
 # [RESULT] Max slew rate: 1.5 V/ns
 # [RESULT] Rise time: 0.53 ns (limited by slew rate)
 # [RESULT] Effective bandwidth: 28 GHz (slew rate limited)
@@ -2447,7 +2447,7 @@ python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 可以通过命令行参数覆盖配置文件中的某些参数（需要 testbench 支持）：
 
 ```bash
-# 覆盖输出摆幅
+# 覆盖Output摆幅
 ./bin/driver_tran_tb basic --vswing 1.0
 
 # 覆盖极点频率
@@ -2457,11 +2457,11 @@ python3 ../scripts/plot_eye_diagram.py driver_tran_eye.dat --data_rate 56e9
 ./bin/driver_tran_tb eye --duration 20e-6
 ```
 
-> **注意**：当前实现可能不支持所有命令行覆盖，请检查 `driver_tran_tb.cpp` 的 `parse_arguments()` 函数。
+> **Note意**：当前实现可能不支持所有命令行覆盖，请检查 `driver_tran_tb.cpp` 的 `parse_arguments()` 函数。
 
 ---
 
-### 6.4 参数配置
+### 6.4 Parameter Configuration
 
 #### 6.4.1 JSON 配置文件结构
 
@@ -2538,19 +2538,19 @@ Driver 测试平台的参数通过 JSON 配置文件管理，文件位于 `confi
 |------|------|------|------|--------|
 | `Fs` | double | Hz | 采样率，需满足 Fs ≥ 20 × BW_max | 100e9 (100GHz) |
 | `duration` | double | s | 仿真时长 | 50e-9 (50ns) |
-| `seed` | int | - | 随机数种子（噪声注入） | 12345 |
+| `seed` | int | - | 随机数种子（噪声Note入） | 12345 |
 
 **驱动器参数（driver）**：
 
 | 参数 | 类型 | 单位 | 说明 | 典型值 |
 |------|------|------|------|--------|
 | `dc_gain` | double | - | 直流增益（线性倍数） | 0.25-0.5 |
-| `vswing` | double | V | 差分输出摆幅（峰峰值） | 0.4-1.2 |
-| `vcm_out` | double | V | 输出共模电压 | 0.6 |
-| `output_impedance` | double | Ω | 输出阻抗（差分） | 50.0 |
+| `vswing` | double | V | 差分Output摆幅（峰峰值） | 0.4-1.2 |
+| `vcm_out` | double | V | Output共模电压 | 0.6 |
+| `output_impedance` | double | Ω | Output阻抗（差分） | 50.0 |
 | `poles` | array | Hz | 极点频率列表 | [50e9] 或 [45e9, 80e9] |
-| `sat_mode` | string | - | 饱和模式："soft"/"hard"/"none" | "soft" |
-| `vlin` | double | V | 软饱和线性区参数 | vswing/1.2 |
+| `sat_mode` | string | - | 饱and模式："soft"/"hard"/"none" | "soft" |
+| `vlin` | double | V | 软饱and线性区参数 | vswing/1.2 |
 
 **PSRR 子参数（driver.psrr）**：
 
@@ -2572,7 +2572,7 @@ Driver 测试平台的参数通过 JSON 配置文件管理，文件位于 `confi
 
 | 参数 | 类型 | 单位 | 说明 | 典型值 |
 |------|------|------|------|--------|
-| `enable` | bool | - | 启用压摆率限制 | false（理想），true（压力测试） |
+| `enable` | bool | - | Enable slew rate limitation | false（理想），true（压力测试） |
 | `max_slew_rate` | double | V/s | 最大压摆率 | 1.5e9 (1.5V/ns) |
 
 #### 6.4.3 不同应用场景的配置示例
@@ -2601,7 +2601,7 @@ Driver 测试平台的参数通过 JSON 配置文件管理，文件位于 `confi
 **说明**：
 - 1.0V 摆幅满足 PCIe 800-1200mV 规范
 - 25GHz 极点频率为奈奎斯特频率（8GHz）的 3 倍
-- 软饱和模式，vlin = vswing/1.2
+- 软饱and模式，vlin = vswing/1.2
 
 **示例2：56G PAM4 SerDes 低摆幅配置**
 
@@ -2658,7 +2658,7 @@ Driver 测试平台的参数通过 JSON 配置文件管理，文件位于 `confi
 
 **说明**：
 - PSRR 降低到 -30dB（gain=0.032），模拟恶劣条件
-- 注入 20mV 电源纹波（100MHz）
+- Note入 20mV 电源纹波（100MHz）
 - 验证系统在低 PSRR 下的性能裕量
 
 #### 6.4.4 参数验证与调试
@@ -2670,7 +2670,7 @@ Testbench 启动时会自动验证参数合法性，以下规则会被检查：
 1. **摆幅范围**：`0 < vswing ≤ 2.0` V
 2. **增益合理性**：`dc_gain > 0`
 3. **极点顺序**：`poles` 数组必须升序排列
-4. **饱和模式一致性**：`sat_mode="soft"` 时必须设置 `vlin > 0`
+4. **饱and模式一致性**：`sat_mode="soft"` 时必须设置 `vlin > 0`
 5. **PSRR 增益范围**：`0 < psrr.gain < 1`
 
 **验证失败示例**：
@@ -2679,7 +2679,7 @@ Testbench 启动时会自动验证参数合法性，以下规则会被检查：
 # 运行测试
 ./bin/driver_tran_tb basic
 
-# 错误输出：
+# 错误Output：
 # [ERROR] Parameter validation failed: vswing must be in (0, 2.0] V
 # Terminating...
 ```
@@ -2723,16 +2723,16 @@ for vswing in 0.4 0.6 0.8 1.0 1.2; do
     # 运行测试
     ./bin/driver_tran_tb basic --config config/temp.json
     
-    # 重命名输出文件
+    # 重命名Output文件
     mv driver_tran_basic.dat driver_tran_vswing_${vswing}.dat
 done
 ```
 
 ---
 
-### 6.5 查看仿真结果
+### 6.5 Viewing Simulation Results
 
-#### 6.5.1 输出文件格式
+#### 6.5.1 Output文件格式
 
 **Trace 文件（.dat）**：
 
@@ -2750,9 +2750,9 @@ SystemC-AMS 生成的表格格式波形数据，默认保存在构建目录下�
 
 **列说明**：
 - 第1列：时间（秒）
-- 第2-3列：差分输入信号（vin_p, vin_n）
+- 第2-3列：差分Input信号（vin_p, vin_n）
 - 第4-5列：信道入口信号（vchannel_p, vchannel_n，考虑阻抗匹配后）
-- 第6列：差分输出信号（vout_diff = vchannel_p - vchannel_n）
+- 第6列：差分Output信号（vout_diff = vchannel_p - vchannel_n）
 - 第7列：电源电压（仅 PSRR 测试有意义）
 
 **性能指标文件（.json）**：
@@ -2797,7 +2797,7 @@ SystemC-AMS 生成的表格格式波形数据，默认保存在构建目录下�
 # 基本用法
 python3 scripts/plot_driver_waveform.py driver_tran_basic.dat
 
-# 指定输出文件名
+# 指定Output文件名
 python3 scripts/plot_driver_waveform.py driver_tran_basic.dat -o driver_waveform.png
 
 # 指定时间范围（10ns-30ns）
@@ -2805,9 +2805,9 @@ python3 scripts/plot_driver_waveform.py driver_tran_basic.dat --tstart 10e-9 --t
 ```
 
 **生成的图表**：
-- 输入差分信号 vs 时间
-- 输出差分信号 vs 时间
-- 输出共模电压 vs 时间
+- InputDifferential signal vs 时间
+- OutputDifferential signal vs 时间
+- Output共模电压 vs 时间
 
 **脚本2：带宽分析（analyze_driver_bandwidth.py）**
 
@@ -2815,12 +2815,12 @@ python3 scripts/plot_driver_waveform.py driver_tran_basic.dat --tstart 10e-9 --t
 # 分析带宽测试数据
 python3 scripts/analyze_driver_bandwidth.py driver_tran_bandwidth.dat
 
-# 输出：
-# - driver_bandwidth_bode.png（Bode图：幅度和相位）
+# Output：
+# - driver_bandwidth_bode.png（Bode图：幅度and相位）
 # - driver_bandwidth_metrics.json（-3dB带宽、滚降速率等）
 ```
 
-**关键输出指标**：
+**关键Output指标**：
 - `-3dB Bandwidth`：幅度响应下降到 -3dB 的频率
 - `Roll-off rate`：滚降速率（dB/decade）
 - `Phase margin`：相位裕量（稳定性指标）
@@ -2828,13 +2828,13 @@ python3 scripts/analyze_driver_bandwidth.py driver_tran_bandwidth.dat
 **脚本3：THD 计算（calculate_driver_thd.py）**
 
 ```bash
-# 计算总谐波失真
+# 计算总Harmonic distortion
 python3 scripts/calculate_driver_thd.py driver_tran_saturation.dat --f0 1e9
 
-# 输出：
+# Output：
 # - driver_thd_spectrum.png（频谱图）
-# - driver_thd_vs_amplitude.png（THD vs 输入幅度）
-# - driver_thd_summary.json（各次谐波幅度和THD）
+# - driver_thd_vs_amplitude.png（THD vs Input幅度）
+# - driver_thd_summary.json（各次谐波幅度andTHD）
 ```
 
 **脚本4：眼图生成（plot_eye_diagram.py）**
@@ -2850,7 +2850,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
     --amplitude_bins 200 \
     --output driver_eye.png
 
-# 输出：
+# Output：
 # - driver_eye_diagram.png（2D眼图）
 # - driver_eye_metrics.json（眼高、眼宽、抖动）
 ```
@@ -2859,7 +2859,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 
 **基本功能测试（BASIC）结果解读**：
 
-**检查项1：输出摆幅**
+**检查项1：Output摆幅**
 - 目标：差分摆幅应等于配置的 `vswing` 值（考虑阻抗匹配）
 - 公式：`实际信道摆幅 = vswing × Z0/(Zout + Z0)`
 - 通过标准：误差 < 5%
@@ -2869,7 +2869,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 - 通过标准：误差 < 10mV
 
 **检查项3：建立时间**
-- 定义：从阶跃开始到输出达到稳态值 98% 的时间
+- 定义：从阶跃开始到Output达到稳态值 98% 的时间
 - 预期：< 5 ns（对于无极点配置）
 - 异常：如果建立时间过长，检查极点频率是否过低
 
@@ -2885,15 +2885,15 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 - N 个极点：-20N dB/decade
 - 验证方法：在 Bode 图高频段拟合直线斜率
 
-**饱和测试（SATURATION）结果解读**：
+**饱and测试（SATURATION）结果解读**：
 
-**检查项1：THD vs 输入幅度**
-- 轻度饱和（Vin < vlin）：THD < 1%
-- 中度饱和（Vin ≈ 1.5 × vlin）：THD ≈ 5-10%
-- 重度饱和（Vin > 2 × vlin）：THD > 20%
+**检查项1：THD vs Input幅度**
+- 轻度饱and（Vin < vlin）：THD < 1%
+- 中度饱and（Vin ≈ 1.5 × vlin）：THD ≈ 5-10%
+- 重度饱and（Vin > 2 × vlin）：THD > 20%
 
 **检查项2：1dB 压缩点**
-- 定义：增益压缩 1dB 时的输入功率
+- 定义：增益压缩 1dB 时的Input功率
 - 预期：约在 Vin × dc_gain ≈ vlin 附近
 - 应用：确定驱动器的线性工作范围
 
@@ -2912,7 +2912,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 
 **检查项1：眼高（Eye Height）**
 - 定义：眼图中心处的垂直开口
-- 目标：> 60% 理论摆幅（考虑噪声和ISI）
+- 目标：> 60% 理论摆幅（考虑噪声andISI）
 - 例如：500mV 摆幅 → 眼高应 > 300mV
 
 **检查项2：眼宽（Eye Width）**
@@ -2927,7 +2927,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 
 ---
 
-### 6.6 调试技巧
+### 6.6 Debugging Tips
 
 #### 6.6.1 启用详细日志
 
@@ -2937,7 +2937,7 @@ python3 scripts/plot_eye_diagram.py driver_tran_eye.dat \
 # 启用 SystemC-AMS 详细日志
 export SCA_VERBOSE=1
 
-# 启用 Driver 模块 debug 输出
+# 启用 Driver 模块 debug Output
 export DRIVER_DEBUG=1
 
 ./bin/driver_tran_tb basic
@@ -2945,7 +2945,7 @@ export DRIVER_DEBUG=1
 
 **方法2：修改源码**
 
-在 `tx_driver.cpp` 的 `processing()` 方法中添加调试输出：
+在 `tx_driver.cpp` 的 `processing()` 方法中添加调试Output：
 
 ```cpp
 void TxDriverTdf::processing() {
@@ -2953,8 +2953,8 @@ void TxDriverTdf::processing() {
     double vin_n = in_n.read();
     double vin_diff = vin_p - vin_n;
     
-    // Debug输出
-    if (get_timestep_count() % 100 == 0) {  // 每100步输出一次
+    // DebugOutput
+    if (get_timestep_count() % 100 == 0) {  // 每100步Output一次
         std::cout << "[DEBUG] t=" << get_time()
                   << " vin_diff=" << vin_diff
                   << " vout_diff=" << m_vout_diff
@@ -2967,10 +2967,10 @@ void TxDriverTdf::processing() {
 
 #### 6.6.2 常见仿真问题
 
-**问题1：仿真无输出或输出全0**
+**问题1：仿真无Output或Output全0**
 
 **可能原因**：
-- 输入信号源未正确连接
+- Input信号源未正确连接
 - 采样率设置过低，导致采样点过少
 - 仿真时长过短，信号未稳定
 
@@ -2982,7 +2982,7 @@ ls -lh driver_tran_basic.dat
 # 2. 查看 trace 文件内容
 head -20 driver_tran_basic.dat
 
-# 3. 检查输入信号列是否有变化
+# 3. 检查Input信号列是否有变化
 awk '{print $2}' driver_tran_basic.dat | sort -u
 ```
 
@@ -3023,7 +3023,7 @@ Error: SystemC-AMS: Convergence error in TDF solver
 ```
 
 **可能原因**：
-- 硬饱和模式导致导数不连续
+- 硬饱and模式导致导数不连续
 - 时间步长过大
 - 滤波器阶数过高
 
@@ -3031,7 +3031,7 @@ Error: SystemC-AMS: Convergence error in TDF solver
 ```json
 {
   "driver": {
-    "sat_mode": "soft"    // 使用软饱和代替硬饱和
+    "sat_mode": "soft"    // 使用软饱and代替硬饱and
   },
   "global": {
     "Fs": 200e9          // 增加采样率（减小时间步长）
@@ -3116,12 +3116,12 @@ echo "All simulations completed"
 #### 6.6.4 故障排查清单
 
 **仿真无法启动**：
-- [ ] 环境变量 `SYSTEMC_HOME` 和 `SYSTEMC_AMS_HOME` 已设置
+- [ ] 环境变量 `SYSTEMC_HOME` and `SYSTEMC_AMS_HOME` 已设置
 - [ ] 库文件路径正确（lib-linux64 或 lib-macosx64）
 - [ ] 可执行文件有执行权限（`chmod +x bin/driver_tran_tb`）
 
-**输出文件未生成**：
-- [ ] 检查输出路径是否可写
+**Output文件未生成**：
+- [ ] 检查Output路径是否可写
 - [ ] 检查配置文件中的 `output.trace_file` 路径
 - [ ] 查看控制台是否有错误信息
 
@@ -3138,27 +3138,27 @@ echo "All simulations completed"
 
 ---
 
-## 5. 仿真结果分析
+## 5. Simulation Results Analysis
 
-本章介绍TX Driver各测试场景的典型仿真结果解读方法、关键性能指标定义及分析手段。通过结合时域波形、频域分析和眼图测量,全面评估驱动器的信号质量和非理想效应影响。
+本章介绍TX Driver各测试场景的典型仿真结果解读方法、关键性能指标定义及分析手段。通过结合时域波形、频域分析and眼图测量,全面评估驱动器的信号质量and非理想效应影响。
 
-### 5.1 仿真环境说明
+### 5.1 Simulation Environment Description
 
 #### 5.1.1 通用配置参数
 
-所有测试场景共享的基础配置：
+所有测试场景共享的基础Configuration:
 
 | 参数类别 | 参数名 | 典型值 | 说明 |
 |---------|--------|--------|------|
 | **全局仿真** | 采样率（Fs） | 100-200 GHz | 需满足 Fs ≥ 20 × BW_max |
 | | 仿真时长 | 50-200 ns | 根据场景调整，眼图测试需更长 |
 | | 时间步长（Ts） | 5-10 ps | Ts = 1/Fs |
-| **信号源** | 输入幅度 | ±1 V (2V pp) | 归一化差分输入 |
+| **信号源** | Input幅度 | ±1 V (2V pp) | 归一化差分Input |
 | | 数据速率 | 25-56 Gbps | 根据极点带宽匹配 |
 | | PRBS类型 | PRBS31 | 眼图测试使用长序列 |
-| **驱动器** | 直流增益 | 0.25-0.5 | 目标输出摆幅决定 |
-| | 输出摆幅 | 400-1200 mV | 根据应用标准选择 |
-| | 输出阻抗 | 50 Ω | 匹配传输线特性阻抗 |
+| **驱动器** | 直流增益 | 0.25-0.5 | 目标Output摆幅决定 |
+| | Output摆幅 | 400-1200 mV | 根据应用标准选择 |
+| | Output阻抗 | 50 Ω | 匹配传输线特性阻抗 |
 | **传输线** | 特性阻抗（Z0） | 50 Ω | 高速SerDes标准值 |
 
 #### 5.1.2 测试条件分类
@@ -3167,26 +3167,26 @@ echo "All simulations completed"
 
 **理想条件（Baseline）**：
 - 所有非理想效应关闭（PSRR/失衡/压摆率限制均disable）
-- 饱和模式："none"或"soft"（轻度过驱动）
+- 饱and模式："none"或"soft"（轻度过驱动）
 - 用于建立性能基准
 
 **典型条件（Nominal）**：
 - 启用适度的非理想效应：
   - PSRR：-40dB（gain=0.01）
-  - 增益失配：2%
+  - Gain mismatch:2%
   - 相位偏斜：1-2ps
-- 饱和模式："soft"，vlin = vswing/1.2
+- 饱and模式："soft"，vlin = vswing/1.2
 - 模拟实际芯片的典型表现
 
 **压力条件（Stress）**：
 - 启用强烈的非理想效应：
   - PSRR：-30dB（gain=0.032）
-  - 增益失配：5%
+  - Gain mismatch:5%
   - 相位偏斜：5ps
   - 压摆率限制：0.8V/ns
-- 验证极限条件下的功能和裕量
+- 验证极限条件下的功能and裕量
 
-### 5.2 基础功能验证
+### 5.2 Basic Function Verification
 
 #### 5.2.1 阶跃响应测试（BASIC_FUNCTION场景）
 
@@ -3208,8 +3208,8 @@ echo "All simulations completed"
 **期望结果分析**：
 
 **时域波形特征**：
-- **输入阶跃**：0 → 2V（1ns上升时间）
-- **输出响应**：理想匹配下，信道入口摆幅为内部开路摆幅的一半
+- **Input阶跃**：0 → 2V（1ns上升时间）
+- **Output响应**：理想匹配下，信道入口摆幅为内部开路摆幅的一半
   - 内部开路摆幅：2V × 0.4 = 0.8V
   - 信道入口摆幅：0.8V × 50/(50+50) = 0.4V（差分）
   - 单端信号：vchannel_p = 0.6V ± 0.2V，vchannel_n = 0.6V ∓ 0.2V
@@ -3218,8 +3218,8 @@ echo "All simulations completed"
 
 | 指标 | 理想值 | 测量方法 | 通过标准 |
 |------|--------|----------|---------|
-| 差分输出摆幅 | 400 mV | max(vdiff) - min(vdiff) | 误差 < 5% |
-| 输出共模电压 | 600 mV | mean(vp + vn)/2 | 误差 < 10 mV |
+| 差分Output摆幅 | 400 mV | max(vdiff) - min(vdiff) | 误差 < 5% |
+| Output共模电压 | 600 mV | mean(vp + vn)/2 | 误差 < 10 mV |
 | 建立时间 | < 5 ns | 至稳态值的98% | 无过冲或振铃 |
 | 直流增益 | 0.2 | Vout_diff / Vin_diff | 误差 < 3% |
 
@@ -3274,11 +3274,11 @@ plt.savefig('driver_step_response.png')
 
 #### 5.2.2 DC特性曲线
 
-通过扫描输入幅度,获取驱动器的DC传递特性：
+通过扫描Input幅度,获取驱动器的DC传递特性：
 
 **扫描配置**：
-- 输入幅度：-2V 至 +2V（步进0.1V）
-- 饱和模式：对比"none"、"soft"、"hard"三种模式
+- Input幅度：-2V 至 +2V（步进0.1V）
+- 饱and模式：对比"none"、"soft"、"hard"三种模式
 
 **理想线性模式（sat_mode="none"）**：
 ```
@@ -3286,16 +3286,16 @@ Vout = dc_gain × Vin
 例如：dc_gain=0.4 → 斜率=0.4，过原点
 ```
 
-**软饱和模式（sat_mode="soft"，vlin=0.67V）**：
+**软饱and模式（sat_mode="soft"，vlin=0.67V）**：
 ```
 Vout = Vsat × tanh(Vin × dc_gain / vlin)
-其中 Vsat = vswing/2 = 0.4V
+where Vsat = vswing/2 = 0.4V
 ```
 
 **测量指标**：
-- **线性区范围**：输出偏离理想直线 <3% 的输入范围
-- **1dB压缩点（P1dB）**：增益压缩1dB时的输入功率
-- **饱和电压**：输出达到最大摆幅95%时的输入电压
+- **线性区范围**：Output偏离理想直线 <3% 的Input范围
+- **1dB压缩点（P1dB）**：增益压缩1dB时的Input功率
+- **饱and电压**：Output达到最大摆幅95%时的Input电压
 
 **典型结果示例**（假设dc_gain=0.4，vswing=0.8V，vlin=0.67V）：
 
@@ -3307,14 +3307,14 @@ Vout = Vsat × tanh(Vin × dc_gain / vlin)
 | 1.5     | 0.600         | 0.464        | 77        |
 | 2.0     | 0.800         | 0.532        | 67        |
 
-**观察**：当输入达到1.5V时（对应Vin×dc_gain/vlin ≈ 0.9），线性度下降到77%，接近1dB压缩点。
+**观察**：当Input达到1.5V时（对应Vin×dc_gain/vlin ≈ 0.9），线性度下降到77%，接近1dB压缩点。
 
-### 5.3 频率响应特性
+### 5.3 Frequency Response Characteristics
 
 #### 5.3.1 Bode图测量（BANDWIDTH_TEST场景）
 
 **测试原理**：
-使用正弦扫频信号作为输入,通过FFT或锁相放大技术测量各频率点的幅度和相位响应。
+使用正弦扫频信号作为Input,通过FFT或锁相放大技术测量各频率点的幅度and相位响应。
 
 **测试配置**：
 ```json
@@ -3356,7 +3356,7 @@ freq_in, psd_in = welch(vin_diff, fs=Fs, nperseg=2048)
 freq_out, psd_out = welch(vout_diff, fs=Fs, nperseg=2048)
 
 # 计算传递函数幅度（去除直流）
-idx_valid = freq_in > 1e6  # 排除DC和低频噪声
+idx_valid = freq_in > 1e6  # 排除DCand低频噪声
 H_mag = np.sqrt(psd_out[idx_valid] / psd_in[idx_valid])
 H_dB = 20 * np.log10(H_mag)
 
@@ -3444,16 +3444,16 @@ plt.savefig('driver_bode_plot.png')
 | 双极点 [45e9, 80e9] | ~35 | 34.8 | -39.6 |
 | 三极点 [40e9, 60e9, 100e9] | ~28 | 27.5 | -58.2 |
 
-**观察**：多极点配置牺牲一定带宽,换取更好的频率选择性,减少高频噪声折叠（aliasing）。
+**观察**：Multi-pole configuration牺牲一定带宽,换取更好的频率选择性,减少高频噪声折叠（aliasing）。
 
-### 5.4 非线性特性分析
+### 5.4 Nonlinear Characteristic Analysis
 
-#### 5.4.1 饱和曲线对比（SATURATION_TEST场景）
+#### 5.4.1 饱and曲线对比（SATURATION_TEST场景）
 
 **测试配置**：
-使用固定频率（1GHz）正弦波,扫描输入幅度从0.1V至2V,对比软饱和和硬饱和的输出。
+使用固定频率（1GHz）正弦波,扫描Input幅度从0.1V至2V,对比软饱andand硬饱and的Output。
 
-**软饱和 vs 硬饱和对比表**（vswing=0.8V，vlin=0.67V）：
+**软饱and vs 硬饱and对比表**（vswing=0.8V，vlin=0.67V）：
 
 | Vin (V) | Vout_soft (V) | Vout_hard (V) | THD_soft (%) | THD_hard (%) |
 |---------|--------------|--------------|--------------|--------------|
@@ -3466,17 +3466,17 @@ plt.savefig('driver_bode_plot.png')
 | 2.0     | 0.476        | 0.400        | 28.6         | 62.7         |
 
 **关键观察**：
-- **轻度过驱动（Vin < vlin）**：软饱和THD明显低于硬饱和
+- **轻度过驱动（Vin < vlin）**：软饱andTHD明显低于硬饱and
 - **中度过驱动（Vin ≈ 1.5×vlin）**：两者THD相当
-- **重度饱和（Vin > 2×vlin）**：硬饱和THD急剧升高,软饱和趋于渐近
+- **重度饱and（Vin > 2×vlin）**：硬饱andTHD急剧升高,软饱and趋于渐近
 
-#### 5.4.2 总谐波失真（THD）测量
+#### 5.4.2 总Harmonic distortion（THD）测量
 
 **THD计算公式**：
 ```python
 def calculate_thd(signal, fs, f0, harmonics=9):
     """
-    计算总谐波失真
+    计算总Harmonic distortion
     
     参数：
     signal: 时域信号
@@ -3517,10 +3517,10 @@ print(f"Fundamental: {fundamental*1e3:.1f} mV")
 print(f"THD: {thd:.2f}%")
 ```
 
-**典型THD随输入幅度变化**（软饱和，vlin=0.67V）：
+**典型THD随Input幅度变化**（软饱and，vlin=0.67V）：
 
 ```
-输入幅度 vs THD曲线：
+Input幅度 vs THD曲线：
 
 THD (%)
   30 |                         ╭───────
@@ -3534,12 +3534,12 @@ THD (%)
    0 └─────────────────────────────────────
      0    0.5   1.0   1.5   2.0   (V)
           └─┬─┘ └─┬─┘ └──┬──┘
-         线性区 过渡区  饱和区
+         线性区 过渡区  饱and区
 ```
 
 **THD规格对比**：
 
-| 应用 | THD要求 | 对应最大输入 |
+| 应用 | THD要求 | 对应最大Input |
 |------|---------|-------------|
 | 高保真音频 | < 0.01% | << vlin |
 | 通用SerDes | < 5% | ≈ vlin |
@@ -3547,7 +3547,7 @@ THD (%)
 
 #### 5.4.3 1dB压缩点测量
 
-**定义**：增益压缩1dB时的输入功率点,标志着线性区的边界。
+**定义**：增益压缩1dB时的Input功率点,标志着线性区的边界。
 
 **测量方法**：
 ```python
@@ -3556,8 +3556,8 @@ def find_p1dB(vin_sweep, vout_sweep, dc_gain):
     查找1dB压缩点
     
     参数：
-    vin_sweep: 输入电压扫描数组
-    vout_sweep: 对应的输出电压数组
+    vin_sweep: Input电压扫描数组
+    vout_sweep: 对应的Output电压数组
     dc_gain: 小信号直流增益
     """
     # 计算实际增益
@@ -3582,20 +3582,20 @@ print(f"P1dB Input: {vin_p1dB:.3f} V")
 print(f"P1dB Output: {vout_p1dB*1e3:.1f} mV")
 ```
 
-**典型结果**（软饱和，vlin=0.67V，dc_gain=0.4）：
-- **P1dB输入**：≈ 0.9V（约1.3×vlin）
-- **P1dB输出**：≈ 320mV（约80%最大摆幅）
+**典型结果**（软饱and，vlin=0.67V，dc_gain=0.4）：
+- **P1dBInput**：≈ 0.9V（约1.3×vlin）
+- **P1dBOutput**：≈ 320mV（约80%最大摆幅）
 
 **设计指导**：
-- 输入信号幅度应留有 >3dB裕量（即输入 < 0.45V）
+- Input信号幅度应留有 >3dB裕量（即Input < 0.45V）
 - 实际应用中考虑信号峰均比（PAR），PAM4信号PAR ≈ 1.5
 
-### 5.5 PSRR性能评估
+### 5.5 PSRR Performance Evaluation
 
 #### 5.5.1 单频PSRR测量（PSRR_TEST场景）
 
 **测试原理**：
-在VDD端口注入已知幅度和频率的正弦纹波,测量差分输出的耦合幅度,计算PSRR。
+在VDD端口Note入已知幅度and频率的正弦纹波,测量差分Output的耦合幅度,计算PSRR。
 
 **测试配置**：
 ```json
@@ -3625,7 +3625,7 @@ def measure_psrr(vdd_signal, vout_diff, f_ripple, Fs):
     
     参数：
     vdd_signal: 电源信号时域波形
-    vout_diff: 差分输出时域波形
+    vout_diff: 差分Output时域波形
     f_ripple: 纹波频率 (Hz)
     Fs: 采样率 (Hz)
     """
@@ -3699,7 +3699,7 @@ PSRR(f) = -20*log10(H_psrr(f))
 
 **结论**：对于500mV差分摆幅的系统,PSRR需达到-40dB以上才能将电源噪声影响限制在<1%。
 
-### 5.6 阻抗匹配效应
+### 5.6 Impedance Matching Effects
 
 #### 5.6.1 电压分压验证（IMPEDANCE_MISMATCH场景）
 
@@ -3712,9 +3712,9 @@ PSRR(f) = -20*log10(H_psrr(f))
 | 10% Low | 45 | 50 | -5.3% | 0.526 |
 | Severe Mismatch | 75 | 50 | 20.0% | 0.40 |
 
-**测量验证**（输入2V峰峰值，dc_gain=0.4）：
+**测量验证**（Input2V峰峰值，dc_gain=0.4）：
 
-| Zout (Ω) | 理论输出 (mV) | 实测输出 (mV) | 误差 |
+| Zout (Ω) | 理论Output (mV) | 实测Output (mV) | 误差 |
 |---------|--------------|--------------|------|
 | 50 | 400 | 398 | 0.5% |
 | 55 | 381 | 379 | 0.5% |
@@ -3751,7 +3751,7 @@ PSRR(f) = -20*log10(H_psrr(f))
 
 **设计指导**：高速SerDes要求阻抗匹配容差±10%以内（对应 |ρ| < 5.3%）。
 
-### 5.7 眼图分析
+### 5.7 Eye Diagram Analysis
 
 #### 5.7.1 眼图数据采集（PRBS_EYE_DIAGRAM场景）
 
@@ -3848,7 +3848,7 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 
 **不同配置的眼图性能**（56Gbps，500mV摆幅）：
 
-| 配置 | 极点 | 饱和 | 非理想 | 眼高 (mV) | 眼宽 (ps) | Jitter (ps) | BER |
+| 配置 | 极点 | 饱and | 非理想 | 眼高 (mV) | 眼宽 (ps) | Jitter (ps) | BER |
 |------|------|------|--------|----------|----------|------------|-----|
 | Ideal | [100e9] | none | disable | 485 | 16.8 | 0.3 | 1e-18 |
 | Typical | [45e9, 80e9] | soft | 2%/1.5ps | 412 | 14.2 | 1.8 | 5e-14 |
@@ -3859,17 +3859,17 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 | 效应 | 眼高损失 | 眼宽损失 | 抖动增加 | 主要原因 |
 |------|---------|---------|---------|---------|
 | 带宽限制 | 中等 (15%) | 显著 (20%) | 中等 | ISI，边沿变缓 |
-| 软饱和 | 轻微 (5%) | 轻微 (3%) | 轻微 | 非线性压缩 |
+| 软饱and | 轻微 (5%) | 轻微 (3%) | 轻微 | 非线性压缩 |
 | 增益失配 | 轻微 (2%) | 忽略 | 忽略 | 差模→共模转换 |
-| 相位偏斜 | 忽略 | 中等 (8%) | 显著 | 差分信号不对齐 |
+| 相位偏斜 | 忽略 | 中等 (8%) | 显著 | Differential signal不对齐 |
 | PSRR差 | 中等 (10%) | 轻微 (5%) | 中等 | 电源纹波耦合 |
 
 **结论**：
 - **带宽**是眼宽的主导因素（极点过低导致ISI）
-- **相位偏斜**显著恶化眼宽和抖动（>5ps时不可接受）
-- **PSRR**影响眼高和抖动（需-40dB以上）
+- **相位偏斜**显著恶化眼宽and抖动（>5ps时不可接受）
+- **PSRR**影响眼高and抖动（需-40dB以上）
 
-### 5.8 性能指标汇总
+### 5.8 Performance Metrics Summary
 
 #### 5.8.1 关键指标总结表
 
@@ -3877,11 +3877,11 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 
 | 指标 | 典型值 | 测量方法 | 设计目标 |
 |------|--------|----------|---------|
-| 直流增益 | 0.25-0.5 | 稳态输出/输入 | ±5% |
-| 输出摆幅 | 400-1200 mV | max(vdiff)-min(vdiff) | ±3% |
-| 输出共模电压 | 600 mV | mean(vp+vn)/2 | ±10 mV |
-| 线性区范围 | ±vlin (约±0.7V) | 输出线性度>97%的输入范围 | > ±0.5V |
-| P1dB压缩点 | 约1.3×vlin | 增益压缩1dB的输入 | > 标称输入+3dB |
+| 直流增益 | 0.25-0.5 | 稳态Output/Input | ±5% |
+| Output摆幅 | 400-1200 mV | max(vdiff)-min(vdiff) | ±3% |
+| Output共模电压 | 600 mV | mean(vp+vn)/2 | ±10 mV |
+| 线性区范围 | ±vlin (约±0.7V) | Output线性度>97%的Input范围 | > ±0.5V |
+| P1dB压缩点 | 约1.3×vlin | 增益压缩1dB的Input | > 标称Input+3dB |
 
 **频率响应特性**：
 
@@ -3898,23 +3898,23 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 |------|--------|----------|---------|
 | THD（轻度过驱动） | < 5% | FFT谐波分析 | < 5% |
 | THD（中度过驱动） | 8-15% | FFT谐波分析 | < 20% |
-| 饱和电压 | ±0.4V | 输出达到95%最大摆幅 | > 标称输入×1.5 |
+| 饱and电压 | ±0.4V | Output达到95%最大摆幅 | > 标称Input×1.5 |
 
 **电源抑制特性**：
 
 | 指标 | 典型值 | 测量方法 | 设计目标 |
 |------|--------|----------|---------|
-| PSRR @ DC-100MHz | -40 dB | 单频注入测试 | > -40dB |
-| PSRR @ 1GHz | -37 dB | 单频注入测试 | > -35dB |
+| PSRR @ DC-100MHz | -40 dB | 单频Note入测试 | > -40dB |
+| PSRR @ 1GHz | -37 dB | 单频Note入测试 | > -35dB |
 | PSRR极点频率 | 1 GHz | PSRR-3dB点 | 配置值±20% |
 
 **阻抗匹配特性**：
 
 | 指标 | 典型值 | 测量方法 | 设计目标 |
 |------|--------|----------|---------|
-| 输出阻抗 | 50 Ω | DC测量/反射系数 | Z0 ± 10% |
+| Output阻抗 | 50 Ω | DC测量/反射系数 | Z0 ± 10% |
 | 反射系数 | < 5% | TDR或眼图ISI | < 10% |
-| 电压分压因子 | 0.50 | 实测输出/开路输出 | 理论值±2% |
+| 电压分压因子 | 0.50 | 实测Output/开路Output | 理论值±2% |
 
 **眼图性能指标**（56Gbps PAM4，500mV摆幅）：
 
@@ -3955,36 +3955,36 @@ analyzer.plot_eye_diagram(eye_data, save_path='driver_eye.png')
 
 ---
 
-## 7. 技术要点
+## 7. Technical Points
 
-### 7.1 设计权衡与折衷
+### 7.1 Design Trade-offs
 
 TX Driver 的设计涉及多个相互制约的性能指标，需要在不同应用场景中做出权衡。
 
-#### 7.1.1 输出摆幅 vs 功耗
+#### 7.1.1 Output摆幅 vs 功耗
 
 **权衡分析**：
 
-输出摆幅（Vswing）直接影响功耗和信号质量：
+Output摆幅（Vswing）直接影响功耗and信号质量：
 
 - **高摆幅（800-1200mV）的优势**：
   - 接收端信噪比（SNR）提高，降低误码率（BER）
-  - 对信道损耗和噪声的容忍度更高
+  - 对信道损耗and噪声的容忍度更高
   - 适用于长距离传输（背板、电缆）
   
 - **高摆幅的代价**：
   - 功耗与摆幅平方成正比：`P_dynamic = C_load × Vswing² × f_data`
-  - EMI（电磁干扰）和串扰增加
-  - 对驱动器输出级晶体管尺寸要求更高
+  - EMI（电磁干扰）and串扰增加
+  - 对驱动器Output级晶体管尺寸要求更高
 
 - **低摆幅（400-600mV）的优势**：
   - 功耗显著降低（56G PAM4常用策略）
-  - EMI和串扰减小
-  - 适合高密度互连和短距离链路
+  - EMIand串扰减小
+  - 适合高密度互连and短距离链路
   
 - **低摆幅的代价**：
   - 接收端SNR下降，需要更强的均衡能力（CTLE、DFE）
-  - 对噪声和失调敏感度增加
+  - 对噪声and失调敏感度增加
 
 **定量示例**：
 
@@ -3999,18 +3999,18 @@ TX Driver 的设计涉及多个相互制约的性能指标，需要在不同应�
 
 **设计建议**：
 - **长距离链路**（>30cm背板）：选择800-1200mV摆幅，确保信道损耗后仍有足够裕量
-- **短距离链路**（<10cm芯片间）：选择400-600mV摆幅，优先降低功耗和EMI
-- **一般应用**：选择700-800mV摆幅，平衡性能和功耗
+- **短距离链路**（<10cm芯片间）：选择400-600mV摆幅，优先降低功耗andEMI
+- **一般应用**：选择700-800mV摆幅，平衡性能and功耗
 
 #### 7.1.2 带宽 vs ISI与功耗
 
 **权衡分析**：
 
-驱动器带宽（由极点频率决定）影响信号完整性和功耗：
+驱动器带宽（由极点频率决定）影响信号完整性and功耗：
 
 - **带宽不足的影响**：
   - 边沿变缓，上升/下降时间增加
-  - 符号间干扰（ISI）加剧，眼图闭合
+  - 符号间干扰（ISI）加剧，Eye closure
   - 奈奎斯特频率附近的频率成分衰减过多
   
 - **带宽过宽的影响**：
@@ -4043,38 +4043,38 @@ ISI_ratio = ∫(|h(t)| dt, from UI to ∞) / ∫(|h(t)| dt, from 0 to ∞)
 
 **功耗影响**：
 
-驱动器带宽主要由输出级晶体管的跨导和负载电容决定：
+驱动器带宽主要由Output级晶体管的跨导and负载电容决定：
 ```
 BW ≈ gm / (2π × C_load)
 ```
 提高带宽需要增大跨导（`gm ∝ I_bias`），导致静态功耗增加。
 
-#### 7.1.3 饱和特性选择（软 vs 硬）
+#### 7.1.3 饱and特性选择（软 vs 硬）
 
-**软饱和（Soft Saturation）vs 硬饱和（Hard Clipping）**：
+**软饱and（Soft Saturation）vs 硬饱and（Hard Clipping）**：
 
-| 特性维度 | 软饱和（tanh） | 硬饱和（clamp） | 推荐场景 |
+| 特性维度 | 软饱and（tanh） | 硬饱and（clamp） | 推荐场景 |
 |---------|---------------|----------------|---------|
-| 谐波失真 | 低（THD < 5%） | 高（THD > 20%） | 精确建模用软饱和 |
-| 收敛性 | 优秀（连续导数） | 差（边界不连续） | 快速验证用硬饱和 |
-| 计算复杂度 | 稍高（tanh函数） | 低（min/max） | 性能要求高用硬饱和 |
-| 物理真实性 | 高（晶体管渐进压缩） | 低（理想限幅） | 芯片级仿真用软饱和 |
+| Harmonic distortion | 低（THD < 5%） | 高（THD > 20%） | 精确建模用软饱and |
+| 收敛性 | 优秀（连续导数） | 差（边界不连续） | 快速验证用硬饱and |
+| 计算复杂度 | 稍高（tanh函数） | 低（min/max） | 性能要求高用硬饱and |
+| 物理真实性 | 高（晶体管渐进压缩） | 低（理想限幅） | 芯片级仿真用软饱and |
 
-**软饱和参数（Vlin）选择**：
+**软饱and参数（Vlin）选择**：
 
-`Vlin` 定义线性区输入范围，影响饱和特性：
+`Vlin` 定义线性区Input范围，影响饱and特性：
 
-| Vlin / Vswing | 线性区范围 | 饱和特性 | 过驱动余量 | 适用场景 |
+| Vlin / Vswing | 线性区范围 | 饱and特性 | 过驱动余量 | 适用场景 |
 |--------------|-----------|---------|-----------|---------|
 | 1.5 | 宽 | 非常宽松 | 50% | 理想测试 |
-| 1.2（**推荐**） | 中等 | 适度饱和 | 20% | 实际应用 |
-| 1.0 | 窄 | 容易饱和 | 0% | 压力测试 |
-| 0.8 | 很窄 | 严重饱和 | -20% | 极限测试 |
+| 1.2（**推荐**） | 中等 | 适度饱and | 20% | 实际应用 |
+| 1.0 | 窄 | 容易饱and | 0% | 压力测试 |
+| 0.8 | 很窄 | 严重饱and | -20% | 极限测试 |
 
 **设计建议**：
-- **标准配置**：`Vlin = Vswing / 1.2`，允许20%过驱动余量，平衡线性度和动态范围
+- **标准配置**：`Vlin = Vswing / 1.2`，允许20%过驱动余量，平衡线性度and动态范围
 - **低失真设计**：`Vlin = Vswing / 1.5`，牺牲动态范围换取更低THD
-- **压力测试**：`Vlin = Vswing / 1.0`，验证系统在饱和条件下的鲁棒性
+- **压力测试**：`Vlin = Vswing / 1.0`，验证系统在饱and条件下的鲁棒性
 
 #### 7.1.4 PSRR设计权衡
 
@@ -4107,23 +4107,23 @@ BW ≈ gm / (2π × C_load)
    - 可通过共模反馈（CMFB）改善
 
 4. **共源共栅（Cascode）结构**：
-   - 提高电源到输出的隔离度
+   - 提高电源到Output的隔离度
    - 典型改善：10-15dB
-   - 代价：减小输出摆幅裕量
+   - 代价：减小Output摆幅裕量
 
 **频率相关性**：
 
 PSRR通常在低频最差，高频通过去耦电容改善：
 - **DC-1MHz**：PSRR最差点，主要依赖电路拓扑（Cascode、CMFB）
 - **1-100MHz**：片上去耦电容开始起作用，PSRR改善
-- **100MHz-1GHz**：封装和PCB去耦电容主导，PSRR进一步改善
-- **>1GHz**：传输线效应和寄生电感限制去耦效果
+- **100MHz-1GHz**：封装andPCB去耦电容主导，PSRR进一步改善
+- **>1GHz**：传输线效应and寄生电感限制去耦效果
 
 #### 7.1.5 阻抗匹配容差
 
 **阻抗失配的影响**：
 
-驱动器输出阻抗（Zout）与传输线特性阻抗（Z0）的失配导致反射：
+驱动器Output阻抗（Zout）and transmission line characteristic impedance（Z0）的失配导致反射：
 
 | Zout (Ω) | Z0 (Ω) | 反射系数 ρ | 反射幅度 | ISI恶化 | 容差评估 |
 |---------|--------|-----------|---------|---------|---------|
@@ -4153,34 +4153,34 @@ PSRR通常在低频最差，高频通过去耦电容改善：
 
 **工艺偏差考虑**：
 
-实际芯片的输出阻抗受工艺、电压、温度（PVT）影响：
+实际芯片的Output阻抗受工艺、电压、温度（PVT）影响：
 - **工艺偏差**：±10%（Fast/Slow corner）
 - **电压偏差**：±5%（VDD = 1.0V ± 0.05V）
 - **温度偏差**：±3%（-40°C ~ +125°C）
 
 因此，设计中心值应留有裕量，确保PVT角下仍满足容差要求。
 
-### 7.2 参数选择指导
+### 7.2 Parameter Selection Guidance
 
 #### 7.2.1 直流增益（dc_gain）选择
 
 **选择依据**：
 
 直流增益由以下因素共同决定：
-1. 输入信号幅度（通常来自FFE输出，归一化为±1V）
+1. Input信号幅度（通常来自FFEOutput，归一化为±1V）
 2. 目标信道入口摆幅（由标准或信道预算决定）
 3. 阻抗匹配分压效应（理想匹配时为0.5）
 
 **计算公式**：
 ```
-dc_gain = (目标信道摆幅 × 2) / 输入信号摆幅
+dc_gain = (目标信道摆幅 × 2) / Input信号摆幅
 ```
 
-其中因子2来自阻抗匹配分压（开路摆幅需为信道摆幅的2倍）。
+where因子2来自阻抗匹配分压（开路摆幅需为信道摆幅的2倍）。
 
 **典型配置示例**：
 
-| 标准 | 输入幅度 | 信道摆幅 | dc_gain | 备注 |
+| 标准 | Input幅度 | 信道摆幅 | dc_gain | 备Note |
 |------|---------|---------|---------|------|
 | PCIe Gen3 | ±1V (2Vpp) | 1000mV | 1.0 | 理想匹配 |
 | PCIe Gen4 | ±1V (2Vpp) | 1000mV | 1.0 | 同Gen3 |
@@ -4188,16 +4188,16 @@ dc_gain = (目标信道摆幅 × 2) / 输入信号摆幅
 | 56G NRZ | ±1V (2Vpp) | 800mV | 0.8 | 低摆幅链路 |
 | 56G PAM4 | ±1V (2Vpp) | 500mV | 0.5 | 超低摆幅 |
 
-**注意事项**：
+**Note意事项**：
 - 上述增益已考虑阻抗匹配分压效应（内部开路增益）
-- 若输入信号非±1V，需按比例调整
-- 增益设置过高可能导致饱和，应配合 `vlin` 参数合理配置
+- 若Input信号非±1V，需按比例调整
+- 增益设置过高可能导致饱and，应配合 `vlin` 参数合理配置
 
 #### 7.2.2 极点频率（poles）选择
 
-**单极点配置**：
+**Single-pole configuration**：
 
-最简单的配置，适合快速原型和初步建模：
+最简单的配置，适合快速原型and初步建模：
 ```json
 "poles": [fp]
 ```
@@ -4216,16 +4216,16 @@ dc_gain = (目标信道摆幅 × 2) / 输入信号摆幅
 | 56 Gbps | 28 GHz | 56-84 GHz | `"poles": [70e9]` |
 | 112 Gbps | 56 GHz | 112-168 GHz | `"poles": [140e9]` |
 
-**多极点配置**：
+**Multi-pole configuration**：
 
-更真实地模拟寄生电容、封装效应和负载特性：
+更真实地模拟寄生电容、封装效应and负载特性：
 ```json
 "poles": [fp1, fp2, ...]
 ```
 
 **典型双极点配置**：
 - **方案1 - 相同极点**：`[fp, fp]`，构建陡峭滚降（-40dB/decade）
-- **方案2 - 分散极点**：`[fp1, fp2]`，其中 `fp2 = (2-3) × fp1`，模拟多级放大器
+- **方案2 - 分散极点**：`[fp1, fp2]`，where `fp2 = (2-3) × fp1`，模拟多级放大器
 
 **示例**（56G PAM4）：
 ```json
@@ -4234,23 +4234,23 @@ dc_gain = (目标信道摆幅 × 2) / 输入信号摆幅
 }
 ```
 - 第一极点45GHz：主导带宽特性
-- 第二极点80GHz：改善滚降陡度和带外噪声抑制
+- 第二极点80GHz：改善滚降陡度and带外噪声抑制
 
-**注意事项**：
+**Note意事项**：
 - 极点数量建议 ≤ 3，过多极点导致数值不稳定
 - 极点频率必须升序排列
 - 采样率应 ≥ 20 × fp_max，确保滤波器精度
 
-#### 7.2.3 饱和参数（vlin）调整
+#### 7.2.3 饱and参数（vlin）调整
 
 **Vlin参数的物理含义**：
 
-`Vlin` 定义软饱和函数的线性区输入范围，在双曲正切模型中：
+`Vlin` 定义软饱and函数的线性区Input范围，在双曲正切模型中：
 ```
 Vout = Vsat × tanh(Vin / Vlin)
 ```
 
-当 `|Vin| << Vlin` 时，输出近似线性；当 `|Vin| ≈ Vlin` 时，开始进入饱和区。
+当 `|Vin| << Vlin` 时，Output近似线性；当 `|Vin| ≈ Vlin` 时，开始进入饱and区。
 
 **选择策略**：
 
@@ -4263,21 +4263,21 @@ Vlin = Vswing / α
 
 | α | Vlin（假设Vswing=0.8V） | 线性度 | 过驱动余量 | 适用场景 |
 |---|------------------------|--------|-----------|---------|
-| 1.0 | 0.80V | 100% @ Vlin | 0% | 极限测试，容易饱和 |
+| 1.0 | 0.80V | 100% @ Vlin | 0% | 极限测试，容易饱and |
 | 1.2 | 0.67V | 76% @ Vlin | 20% | **标准配置**，推荐 |
 | 1.5 | 0.53V | 63% @ Vlin | 50% | 低失真设计 |
 | 2.0 | 0.40V | 51% @ Vlin | 100% | 理想测试 |
 
-**线性度含义**：输入为Vlin时，输出约为最大摆幅的 `tanh(1) ≈ 76%`。
+**线性度含义**：Input为Vlin时，Output约为最大摆幅的 `tanh(1) ≈ 76%`。
 
 **调试建议**：
 
 1. **初始配置**：设置 `Vlin = Vswing / 1.2`
-2. **观察眼图**：若眼高明显低于预期，可能过度饱和
+2. **观察眼图**：若眼高明显低于预期，可能过度饱and
 3. **调整策略**：
    - 眼高损失 > 10% → 增大Vlin（降低α至1.0-1.1）
    - 眼高正常 → 保持或适当增大α（提高线性度）
-4. **THD验证**：使用单频正弦输入，测量总谐波失真（目标 < 5%）
+4. **THD验证**：使用单频正弦Input，测量总Harmonic distortion（目标 < 5%）
 
 **PAM4特殊考虑**：
 
@@ -4289,7 +4289,7 @@ PAM4信号有3个过渡电平，中间电平处的非线性更敏感：
 
 **gain参数选择**：
 
-PSRR增益定义了电源纹波到差分输出的耦合强度：
+PSRR增益定义了电源纹波到差分Output的耦合强度：
 ```
 PSRR_dB = 20 × log10(1 / gain)
 ```
@@ -4324,15 +4324,15 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 **设计建议**：
 - **标准配置**：`poles = [500e6]`，模拟典型去耦网络
 - **保守配置**：`poles = [100e6]`，模拟较差的电源设计
-- **多极点配置**：`poles = [100e6, 1e9]`，模拟多级去耦网络的复杂频率响应
+- **Multi-pole configuration**：`poles = [100e6, 1e9]`，模拟多级去耦网络的复杂频率响应
 
-#### 7.2.5 输出阻抗（output_impedance）配置
+#### 7.2.5 Output阻抗（output_impedance）配置
 
 **标准值选择**：
 
 高速SerDes通常使用差分50Ω阻抗（单端25Ω）：
 
-| 应用领域 | 差分阻抗 | 单端阻抗 | 备注 |
+| 应用领域 | 差分阻抗 | 单端阻抗 | 备Note |
 |---------|---------|---------|------|
 | PCIe | 100Ω | 50Ω | 标准配置 |
 | USB | 90Ω | 45Ω | 略低阻抗 |
@@ -4350,7 +4350,7 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 
 **失配测试建议**：
 
-在测试平台中扫描输出阻抗，评估失配影响：
+在测试平台中扫描Output阻抗，评估失配影响：
 ```json
 {
   "test_cases": [
@@ -4369,13 +4369,13 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 - ISI增加幅度
 - 抖动恶化
 
-### 7.3 常见设计错误
+### 7.3 Common Design Errors
 
 #### 7.3.1 带宽不足导致ISI
 
 **错误现象**：
 
-眼图严重闭合，眼高和眼宽均低于预期，尤其在长PRBS序列测试时明显。
+眼图严重闭合，眼高and眼宽均低于预期，尤其在长PRBS序列测试时明显。
 
 **根本原因**：
 
@@ -4425,7 +4425,7 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 
 **根本原因**：
 
-极点频率设置过高，放大了信道的高频损耗和噪声：
+极点频率设置过高，放大了信道的高频损耗and噪声：
 ```json
 // 过度设计示例（28Gbps系统）
 {
@@ -4436,8 +4436,8 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 **诊断方法**：
 
 1. **噪声分析**：
-   - 在输入端注入宽带噪声
-   - 观察输出噪声频谱，若高频噪声增强明显，带宽过宽
+   - 在Input端Note入宽带噪声
+   - 观察Output噪声频谱，若高频噪声增强明显，带宽过宽
    
 2. **功耗估算**：
    - 带宽 ∝ 跨导 ∝ 偏置电流
@@ -4457,11 +4457,11 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 - 若信道损耗很小（短距离），可适当降低带宽节省功耗
 - 若信道损耗很大（长距离），需依赖接收端均衡（CTLE、DFE）补偿
 
-#### 7.3.3 饱和建模不当
+#### 7.3.3 饱and建模不当
 
-**错误1 - 硬饱和用于精确仿真**：
+**错误1 - 硬饱and用于精确仿真**：
 
-硬饱和（clamp）产生丰富的高阶谐波，导致频域分析失真：
+硬饱and（clamp）产生丰富的高阶谐波，导致频域分析失真：
 ```json
 // 不推荐用于精确仿真
 {
@@ -4474,13 +4474,13 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 - 眼图边沿出现不自然的尖锐跳变
 - 与真实芯片测试结果偏差大
 
-**正确做法**：精确仿真使用软饱和（tanh）。
+**正确做法**：精确仿真使用软饱and（tanh）。
 
 ---
 
 **错误2 - Vlin设置过小**：
 
-过小的Vlin导致正常信号也进入饱和区：
+过小的Vlin导致正常信号也进入饱and区：
 ```json
 // 错误配置
 {
@@ -4495,7 +4495,7 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 - THD显著增加
 
 **诊断方法**：
-- 单频正弦测试，观察输出是否削顶
+- 单频正弦测试，观察Output是否削顶
 - 检查 `Vin_peak / Vlin` 比值，应 < 1.0
 
 **正确配置**：
@@ -4510,7 +4510,7 @@ PSRR路径的极点频率模拟电源去耦网络的低通特性：
 
 **错误现象**：
 
-PSRR测试中，电源纹波耦合到差分输出的幅度与设计目标不符。
+PSRR测试中，电源纹波耦合到差分Output的幅度与设计目标不符。
 
 **常见错误1 - gain参数理解错误**：
 
@@ -4588,29 +4588,29 @@ PSRR_dB = 20 × log10(1 / gain)
 
 **诊断方法**：
 
-1. **TDR分析**（时域反射计）：
+1. **TDR分析**（Time Domain Reflectometry (TDR)）：
    - 发送阶跃信号
-   - 观察反射脉冲的幅度和时间
+   - 观察反射脉冲的幅度and时间
    - 识别阻抗不连续点
 
 2. **眼图对比**：
    - 对比理想匹配（Zout=Z0）与失配情况
-   - 量化眼高和眼宽退化
+   - 量化眼高and眼宽退化
 
 **解决方案**：
 
-严格控制输出阻抗容差：
+严格控制Output阻抗容差：
 - 设计中心值：50Ω
 - PVT角下容差：±5Ω
 - 使用片上校准（On-Die Calibration）动态调整
 
-### 7.4 调试经验与技巧
+### 7.4 Debugging Experience and Tips
 
 #### 7.4.1 带宽限制诊断
 
 **问题症状**：
 
-眼图闭合，眼高和眼宽均不达标，怀疑带宽不足。
+Eye closure，眼高and眼宽均不达标，怀疑带宽不足。
 
 **诊断流程**：
 
@@ -4626,13 +4626,13 @@ PSRR_dB = 20 × log10(1 / gain)
 python scripts/plot_driver_bandwidth.py driver_tran_bandwidth.dat
 ```
 
-观察输出：
+观察Output：
 - `-3dB带宽`：若 < 1.5 × f_Nyquist，带宽不足
 - `滚降速率`：单极点应为-20dB/decade，双极点为-40dB/decade
 
 **步骤2 - 时域验证**：
 
-使用阶跃输入，测量上升时间：
+使用阶跃Input，测量上升时间：
 
 ```json
 {
@@ -4644,7 +4644,7 @@ python scripts/plot_driver_bandwidth.py driver_tran_bandwidth.dat
 }
 ```
 
-测量输出的10%-90%上升时间 `tr`：
+测量Output的10%-90%上升时间 `tr`：
 - 若 `tr > 0.7 × UI`，带宽不足
 - 经验公式：`BW ≈ 0.35 / tr`
 
@@ -4667,7 +4667,7 @@ python scripts/plot_driver_bandwidth.py driver_tran_bandwidth.dat
 {"poles": [60e9]}  // 眼高 = 750mV，改善25%
 ```
 
-#### 7.4.2 饱和效应识别
+#### 7.4.2 饱and效应识别
 
 **问题症状**：
 
@@ -4677,7 +4677,7 @@ python scripts/plot_driver_bandwidth.py driver_tran_bandwidth.dat
 
 **方法1 - 单频THD测试**：
 
-使用单频正弦输入（如1GHz），测量总谐波失真：
+使用单频正弦Input（如1GHz），测量总Harmonic distortion：
 
 ```python
 # scripts/calculate_thd.py
@@ -4698,13 +4698,13 @@ print(f"THD: {thd:.2f}%")
 ```
 
 **判断标准**：
-- THD < 3%：轻度饱和，可接受
-- THD 3-10%：中度饱和，需调整Vlin
-- THD > 10%：严重饱和，线性度不足
+- THD < 3%：轻度饱and，可接受
+- THD 3-10%：中度饱and，需调整Vlin
+- THD > 10%：严重饱and，线性度不足
 
-**方法2 - 输入-输出特性曲线**：
+**方法2 - Input-Output特性曲线**：
 
-扫描输入幅度，绘制输入-输出关系：
+扫描Input幅度，绘制Input-Output关系：
 
 ```python
 # 生成扫描配置
@@ -4715,15 +4715,15 @@ for amp in amplitudes:
     plot(amp, output_swing)
 ```
 
-理想线性：输出 = 输入 × dc_gain  
-实际饱和：输出在大信号时偏离线性
+理想线性：Output = Input × dc_gain  
+实际饱and：Output在大信号时偏离线性
 
 **方法3 - PRBS眼图检查**：
 
 观察不同码型跃变的幅度：
 - 0→1跃变：应为Vswing
 - 1→0跃变：应为-Vswing
-- 若两者幅度不对称，可能存在饱和或失调
+- 若两者幅度不对称，可能存在饱and或失调
 
 **调整策略**：
 
@@ -4747,7 +4747,7 @@ for amp in amplitudes:
   "scenario": "psrr",
   "signal_source": {
     "type": "dc",
-    "amplitude": 0.0  // 差分输入为0
+    "amplitude": 0.0  // 差分Input为0
   },
   "vdd_source": {
     "vdd_nom": 1.0,
@@ -4791,12 +4791,12 @@ vdd_ripple_amp = spectrum[idx] * 2 / len(vdd)  # 转换为实际幅度
 print(f"VDD Ripple: {vdd_ripple_amp*1e3:.2f} mV")
 ```
 
-**步骤2 - 提取输出耦合幅度**：
+**步骤2 - 提取Output耦合幅度**：
 
-同样方法提取差分输出的耦合分量：
+同样方法提取差分Output的耦合分量：
 
 ```python
-# 读取差分输出
+# 读取差分Output
 vout_diff = load_trace('driver_tran_psrr.dat', column='vout_diff')
 
 # FFT提取100MHz峰值
@@ -4851,7 +4851,7 @@ plt.savefig('psrr_vs_freq.png')
 
 **优化目标**：
 
-在满足带宽要求的前提下，最小化功耗和高频噪声放大。
+在满足带宽要求的前提下，最小化功耗and高频噪声放大。
 
 **优化流程**：
 
@@ -4951,11 +4951,11 @@ print(f"Optimal poles: {optimal_poles/1e9:.1f} GHz")
 **原因**：高采样率 + 长时长生成海量数据。
 
 **解决**：
-- 使用抽取（decimation）降低输出采样率
+- 使用抽取（decimation）降低Output采样率
 - 仅trace必要信号
 - 使用二进制trace格式（`.vcd`替代`.dat`）
 
-### 7.5 与其他模块的接口考虑
+### 7.5 Interface Considerations with Other Modules
 
 #### 7.5.1 与TX FFE的接口
 
@@ -4966,10 +4966,10 @@ WaveGen → FFE → [Mux] → Driver → Channel
 
 **接口假设**：
 
-1. **输入摆幅约定**：
-   - FFE输出通常归一化为±1V（2V峰峰值）
+1. **Input摆幅约定**：
+   - FFEOutput通常归一化为±1V（2V峰峰值）
    - Driver的 `dc_gain` 基于此假设配置
-   - 若FFE输出摆幅变化，需同步调整 `dc_gain`
+   - 若FFEOutput摆幅变化，需同步调整 `dc_gain`
 
 2. **预加重与驱动器的协同**：
    - FFE已施加预加重（pre-emphasis），高频分量增强
@@ -4991,7 +4991,7 @@ Driver_BW ≥ FFE_boost_freq × 1.5
 
 **阻抗匹配协调**：
 
-Driver输出阻抗必须与Channel特性阻抗匹配：
+DriverOutput阻抗必须与Channel特性阻抗匹配：
 
 ```json
 // Driver配置
@@ -5003,12 +5003,12 @@ Driver输出阻抗必须与Channel特性阻抗匹配：
 
 **失配后果**：
 - 反射信号叠加到后续码元，形成ISI
-- 眼图闭合，BER恶化
+- Eye closure，BER恶化
 - 严重失配可能导致链路不稳定
 
 **测试验证**：
 
-使用TDR（时域反射计）测试：
+使用TDR（Time Domain Reflectometry (TDR)）测试：
 1. Driver发送阶跃信号
 2. 观察反射波形
 3. 计算反射系数：`ρ = (V_reflected / V_incident)`
@@ -5018,14 +5018,14 @@ Driver输出阻抗必须与Channel特性阻抗匹配：
 **DC耦合 vs AC耦合**：
 
 **DC耦合链路**：
-- Driver的 `vcm_out` 必须匹配接收端输入共模范围
+- Driver的 `vcm_out` 必须匹配接收端Input共模范围
 - 通常设为 `VDD/2`（如0.5V或0.6V）
 - Channel不改变共模电压
 
 **AC耦合链路**：
 - Channel中包含AC耦合电容（阻断DC）
 - Driver的 `vcm_out` 可任意选择（不影响接收端）
-- 接收端自行建立输入共模电压
+- 接收端自行建立Input共模电压
 
 **配置示例**：
 
@@ -5045,11 +5045,11 @@ Driver输出阻抗必须与Channel特性阻抗匹配：
 }
 ```
 
-#### 7.5.3 与RX的接口（差分信号假设）
+#### 7.5.3 与RX的接口（Differential signal假设）
 
 **差分完整性**：
 
-Driver输出差分信号（out_p / out_n），RX输入假设：
+DriverOutputDifferential signal（out_p / out_n），RXInput假设：
 - **理想差分**：`Vin_diff = Vin_p - Vin_n`
 - **共模抑制**：RX应对共模噪声不敏感（CMRR > 40dB）
 
@@ -5065,7 +5065,7 @@ Driver输出差分信号（out_p / out_n），RX输入假设：
 
 2. **RX端**：
    - 提供足够的CMRR（> 40dB）
-   - 使用差分输入架构（CTLE、VGA）
+   - 使用差分Input架构（CTLE、VGA）
 
 #### 7.5.4 系统级链路预算
 
@@ -5081,7 +5081,7 @@ Driver_Vswing → Channel_Loss → RX_CTLE_Gain → RX_VGA_Gain → Sampler_Vin
 
 **步骤1 - 确定目标**：
 
-接收端采样器输入需满足最小摆幅要求（如200mV）。
+接收端采样器Input需满足最小摆幅要求（如200mV）。
 
 **步骤2 - 信道损耗预算**：
 
@@ -5108,7 +5108,7 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 
 根据Driver摆幅估算功耗，确保满足预算。
 
-### 7.6 性能优化建议
+### 7.6 Performance Optimization Suggestions
 
 #### 7.6.1 针对不同调制方式的优化
 
@@ -5118,7 +5118,7 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 - **Driver优化**：
   - 摆幅：800-1000mV（标准）
   - 带宽：极点频率 = 2-3 × f_Nyquist
-  - 饱和：α = 1.2（标准线性度）
+  - 饱and：α = 1.2（标准线性度）
 
 **配置示例**（25G NRZ）：
 ```json
@@ -5144,7 +5144,7 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 **Driver优化**：
   - **摆幅**：400-600mV（减小功耗）
   - **带宽**：极点频率可适当降低（奈奎斯特频率更低）
-  - **线性度**：更宽松的Vlin（α = 1.0-1.1），避免中间电平饱和
+  - **线性度**：更宽松的Vlin（α = 1.0-1.1），避免中间电平饱and
   - **预失真**：可选，补偿非线性
 
 **配置示例**（56G PAM4）：
@@ -5162,13 +5162,13 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 
 **PAM4特殊考虑**：
 
-中间电平（Level 1和Level 2）的非线性更敏感，可能需要：
+中间电平（Level 1andLevel 2）的非线性更敏感，可能需要：
 1. **预失真（Pre-distortion）**：在FFE中预先补偿Driver的非线性
-2. **LUT映射**：查表法将理想PAM4映射到非线性补偿后的输出
+2. **LUT映射**：查表法将理想PAM4映射到非线性补偿后的Output
 
 #### 7.6.2 多极点 vs 单极点权衡
 
-**单极点配置**：
+**Single-pole configuration**：
 
 ```json
 {"poles": [fp]}
@@ -5177,7 +5177,7 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 **优势**：
 - 参数少，易于调试
 - 频率响应简单，-20dB/decade滚降
-- 适合快速原型和初步建模
+- 适合快速原型and初步建模
 
 **劣势**：
 - 滚降不够陡，带外噪声抑制有限
@@ -5185,7 +5185,7 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 
 ---
 
-**多极点配置**：
+**Multi-pole configuration**：
 
 ```json
 {"poles": [fp1, fp2, ...]}
@@ -5231,22 +5231,22 @@ Driver_Vswing = Sampler_Vin × Channel_Loss × RX_Gain^(-1)
 **分级优化策略**：
 
 **Level 1 - 基本PSRR（30-40dB）**：
-- 配置：`gain = 0.01-0.03`，`poles = [100e6]`
+- Configuration:`gain = 0.01-0.03`，`poles = [100e6]`
 - 方法：基本去耦电容，标准差分架构
 - 成本：低
 
 **Level 2 - 标准PSRR（40-50dB）**：
-- 配置：`gain = 0.003-0.01`，`poles = [500e6]`
+- Configuration:`gain = 0.003-0.01`，`poles = [500e6]`
 - 方法：片上LDO，多级去耦网络
 - 成本：中等
 
 **Level 3 - 高性能PSRR（50-60dB）**：
-- 配置：`gain = 0.001-0.003`，`poles = [1e9]`
+- Configuration:`gain = 0.001-0.003`，`poles = [1e9]`
 - 方法：独立模拟电源域，Cascode结构
 - 成本：高
 
 **Level 4 - 超高性能PSRR（>60dB）**：
-- 配置：`gain < 0.001`，`poles = [100e6, 1e9]`（双极点）
+- Configuration:`gain < 0.001`，`poles = [100e6, 1e9]`（双极点）
 - 方法：共源共栅 + 共模反馈 + 双重屏蔽
 - 成本：极高
 
@@ -5291,7 +5291,7 @@ PSRR在不同频率段的优化策略不同：
 }
 ```
 
-**策略3 - 单极点配置**：
+**策略3 - Single-pole configuration**：
 
 使用单极点替代多极点，减少滤波器计算：
 ```json
@@ -5307,18 +5307,18 @@ PSRR在不同频率段的优化策略不同：
 **精度分级仿真**：
 
 **Phase 1 - 快速验证**（1-10分钟）：
-- 目标：验证基本功能和参数范围
-- 配置：简化模型，短时长（<1µs）
+- 目标：验证基本功能and参数范围
+- Configuration:简化模型，短时长（<1µs）
 - 采样率：100 GHz
 
 **Phase 2 - 标准仿真**（10-60分钟）：
-- 目标：提取眼图和关键指标
-- 配置：标准模型，中等时长（1-10µs）
+- 目标：提取眼图and关键指标
+- Configuration:标准模型，中等时长（1-10µs）
 - 采样率：200 GHz
 
 **Phase 3 - 精确仿真**（1-10小时）：
 - 目标：BER估算，统计分析
-- 配置：完整模型，长时长（>100µs）
+- Configuration:完整模型，长时长（>100µs）
 - 采样率：200-500 GHz
 
 ---
@@ -5333,9 +5333,9 @@ parallel ./driver_tran_tb {} ::: config1.json config2.json config3.json
 
 ---
 
-## 8. 参考信息
+## 8. Reference Information
 
-### 8.1 相关文件清单
+### 8.1 Related Files List
 
 #### 8.1.1 核心源文件
 
@@ -5348,9 +5348,9 @@ parallel ./driver_tran_tb {} ::: config1.json config2.json config3.json
 **关键类与方法**：
 
 - `TxDriverTdf` - 主模块类（继承自 `sca_tdf::sca_module`）
-- `set_attributes()` - 采样率和时间步长配置
+- `set_attributes()` - 采样率and时间步长配置
 - `initialize()` - 滤波器对象初始化，状态变量初始化
-- `processing()` - 核心信号处理流水线（增益→带宽限制→饱和→PSRR→失衡→压摆率→阻抗匹配→输出）
+- `processing()` - 核心信号处理流水线（增益→带宽限制→饱and→PSRR→失衡→压摆率→阻抗匹配→Output）
 - `buildTransferFunction()` - 带宽限制传递函数构建
 - `buildPsrrTransferFunction()` - PSRR路径传递函数构建
 
@@ -5367,13 +5367,13 @@ parallel ./driver_tran_tb {} ::: config1.json config2.json config3.json
 
 | 文件 | 路径 | 功能 |
 |------|------|------|
-| 波形绘图 | `/scripts/plot_driver_waveform.py` | 时域波形可视化（输入、输出、差分信号） |
+| 波形绘图 | `/scripts/plot_driver_waveform.py` | 时域波形可视化（Input、Output、Differential signal） |
 | 频域分析 | `/scripts/analyze_driver_bandwidth.py` | 带宽测量、幅频响应、相位裕量分析 |
-| THD计算 | `/scripts/calculate_thd.py` | 总谐波失真计算和频谱分析 |
+| THD计算 | `/scripts/calculate_thd.py` | 总Harmonic distortion计算and频谱分析 |
 | 眼图分析 | `/scripts/eye_analyzer.py` | 眼图生成、眼高/眼宽测量、抖动统计 |
 | PSRR分析 | `/scripts/analyze_psrr.py` | PSRR频域扫描、耦合幅度提取 |
 
-### 8.2 依赖项说明
+### 8.2 Dependencies Description
 
 #### 8.2.1 SystemC与SystemC-AMS
 
@@ -5403,10 +5403,10 @@ parallel ./driver_tran_tb {} ::: config1.json config2.json config3.json
 **C++14 特性使用**：
 
 - `auto` 类型推导
-- Lambda表达式（用于参数验证和回调）
+- Lambda表达式（用于参数验证and回调）
 - `std::vector` 动态容器（极点/零点列表）
-- `std::mt19937` 随机数生成器（噪声注入）
-- `std::tanh()` 数学函数（软饱和）
+- `std::mt19937` 随机数生成器（噪声Note入）
+- `std::tanh()` 数学函数（软饱and）
 
 **编译器支持**：
 
@@ -5462,13 +5462,13 @@ pip install numpy scipy matplotlib pandas seaborn
 pip install -r scripts/requirements.txt
 ```
 
-### 8.3 性能基准与资源消耗
+### 8.3 Performance Benchmark and Resource Consumption
 
 #### 8.3.1 仿真性能
 
 **典型场景仿真时间**（测试平台：Intel i7-10700K 8核, 32GB RAM, Linux）：
 
-| 场景 | 仿真时长 | 采样率 | 仿真耗时（墙钟时间） | 内存占用 | 输出文件大小 |
+| 场景 | 仿真时长 | 采样率 | 仿真耗时（墙钟时间） | 内存占用 | Output文件大小 |
 |------|---------|--------|---------------------|---------|-------------|
 | BASIC_FUNCTION | 50 ns | 100 GHz | ~2秒 | 50 MB | 5 MB |
 | BANDWIDTH_TEST | 200 ns | 100 GHz | ~8秒 | 80 MB | 20 MB |
@@ -5533,7 +5533,7 @@ pip install -r scripts/requirements.txt
 | 眼图测试 | 8核CPU, 32GB RAM | 4核, 16GB | 长仿真（10μs+），高采样率（200GHz） |
 | 参数扫描（并行） | 16核CPU, 64GB RAM | 8核, 32GB | 多配置并行运行 |
 
-### 8.4 扩展与定制指导
+### 8.4 Extension and Customization Guidance
 
 #### 8.4.1 添加新测试场景
 
@@ -5580,7 +5580,7 @@ if (scenario == "custom") {
 
 #### 8.4.2 扩展非理想效应
 
-**示例：添加输出噪声建模**
+**示例：添加Output噪声建模**
 
 **1. 扩展参数结构**（`parameters.h`）：
 
@@ -5590,7 +5590,7 @@ struct TxDriverParams {
     
     struct OutputNoise {
         bool enable = false;
-        double rms_voltage = 0.0;    // 输出噪声RMS电压（V）
+        double rms_voltage = 0.0;    // Output噪声RMS电压（V）
         double corner_freq = 1e9;    // 闪烁噪声拐角频率（Hz）
     } output_noise;
 };
@@ -5602,7 +5602,7 @@ struct TxDriverParams {
 void TxDriverTdf::processing() {
     // ... 现有流程 ...
     
-    // 新增：输出噪声注入
+    // 新增：Output噪声Note入
     if (m_params.output_noise.enable) {
         double noise = generateGaussianNoise(m_params.output_noise.rms_voltage);
         vout_diff += noise;
@@ -5649,7 +5649,7 @@ void TxDriverTdf::buildTransferFunction() {
 
 **示例：添加控制端口（动态增益调整）**
 
-**1. 添加输入端口**：
+**1. 添加Input端口**：
 
 ```cpp
 class TxDriverTdf : public sca_tdf::sca_module {
@@ -5676,7 +5676,7 @@ void TxDriverTdf::processing() {
 
 这种扩展可用于实现AGC（自动增益控制）测试场景。
 
-### 8.5 参考资料
+### 8.5 References
 
 #### 8.5.1 相关模块文档
 
@@ -5726,7 +5726,7 @@ void TxDriverTdf::processing() {
 **经典教材**：
 
 1. **Razavi, B.** (2012). *Design of Integrated Circuits for Optical Communications* (2nd ed.). Wiley.
-   - 第5章：TX驱动器设计（输出级拓扑、阻抗匹配、预加重）
+   - 第5章：TX驱动器设计（Output级拓扑、阻抗匹配、预加重）
    - 第8章：信号完整性与眼图分析
 
 2. **Dally, W. J., & Poulton, J. W.** (1998). *Digital Systems Engineering*. Cambridge University Press.
@@ -5738,7 +5738,7 @@ void TxDriverTdf::processing() {
 **技术论文**：
 
 - Hidaka, Y., et al. (2009). "A 4-Channel 10.3Gbps Backplane Transceiver Macro with 35dB Equalizer." *ISSCC*.
-  - 发送端驱动器设计、预加重实现
+  - Transmitter Driver设计、预加重实现
 
 - Kuo, C., et al. (2015). "A 28Gb/s 4-Tap FFE/15-Tap DFE Serial Link Transceiver in 32nm SOI CMOS." *ISSCC*.
   - FFE与驱动器集成设计
@@ -5756,10 +5756,10 @@ void TxDriverTdf::processing() {
 
 **测试标准**：
 
-- JEDEC JESD204C: 高速串行接口测试方法（眼图模板、抖动容限）
+- JEDEC JESD204C: 高速串行接口Test Method（眼图模板、抖动容限）
 - OIF CEI-56G: 56Gbps电气接口一致性测试
 
-### 8.6 版本历史
+### 8.6 Version History
 
 | 版本 | 日期 | 变更内容 | 作者 |
 |-----|------|---------|------|
@@ -5770,7 +5770,7 @@ void TxDriverTdf::processing() {
 | v0.5 | 2026-01-12 | 完成第7章（技术要点） | SerDes技术文档团队 |
 | v1.0 | 2026-01-13 | 完成第8章（参考信息），文档审核通过 | SerDes技术文档团队 |
 
-### 8.7 已知限制与未来增强
+### 8.7 Known Limitations and Future Enhancements
 
 #### 8.7.1 当前版本限制（v1.0）
 
@@ -5779,19 +5779,19 @@ void TxDriverTdf::processing() {
    - 若需实现高频增强（去加重效应），应使用独立的FFE模块
 
 2. **阻抗建模**：
-   - 输出阻抗为静态参数，不支持频率相关的阻抗变化
-   - 真实驱动器在高频下输出阻抗可能随频率变化（寄生效应）
+   - Output阻抗为静态参数，不支持频率相关的阻抗变化
+   - 真实驱动器在高频下Output阻抗可能随频率变化（寄生效应）
 
 3. **非线性效应**：
-   - 软饱和采用简化的tanh模型，未考虑高阶非线性（如交调失真）
+   - 软饱and采用简化的tanh模型，未考虑高阶非线性（如交调失真）
    - 未建模差分对的动态失配（温度、工艺偏差）
 
 4. **压摆率限制**：
    - 仅支持对称的上升/下降压摆率
-   - 真实电路中NMOS和PMOS的压摆率可能不同
+   - 真实电路中NMOSandPMOS的压摆率可能不同
 
 5. **测试场景**：
-   - 未包含多音（multi-tone）测试和互调失真（IMD）测试
+   - 未包含多音（multi-tone）测试and互调失真（IMD）测试
    - 未实现S参数级联测试（驱动器 + 信道 + 接收器）
 
 #### 8.7.2 未来增强计划
@@ -5799,7 +5799,7 @@ void TxDriverTdf::processing() {
 **短期（v1.1-v1.2）**：
 
 - [ ] 添加多音测试场景（IMD3/IMD5测量）
-- [ ] 支持频率相关的输出阻抗建模
+- [ ] 支持频率相关的Output阻抗建模
 - [ ] 扩展压摆率限制为非对称模式
 - [ ] 完善Python后处理脚本（自动化报告生成）
 
@@ -5817,7 +5817,7 @@ void TxDriverTdf::processing() {
 - [ ] 集成实时波形监控GUI
 - [ ] 与真实测试设备（示波器、误码仪）的数据格式兼容
 
-### 8.8 技术支持与贡献
+### 8.8 Technical Support and Contribution
 
 **问题反馈**：
 
