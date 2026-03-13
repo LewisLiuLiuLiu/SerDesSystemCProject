@@ -215,7 +215,7 @@ Edit `config/default.json`:
 ### Python Eye Diagram Analysis
 
 ```python
-from eye_analyzer import EyeAnalyzer
+from eye_analyzer import EyeAnalyzer, auto_load_waveform
 import numpy as np
 
 # Initialize analyzer
@@ -227,7 +227,7 @@ analyzer = EyeAnalyzer(
 )
 
 # Load waveform and analyze
-time, voltage = analyzer.load_waveform('waveform.csv')
+time, voltage = auto_load_waveform('waveform.csv')
 metrics = analyzer.analyze(time, voltage)
 
 # Output results

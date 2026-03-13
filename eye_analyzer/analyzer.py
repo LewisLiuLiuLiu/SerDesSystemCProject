@@ -8,7 +8,7 @@ supporting both Sampler-Centric and Golden CDR schemes.
 from typing import Dict, Any, Optional
 import numpy as np
 
-from .schemes import SamplerCentricScheme, GoldenCdrScheme
+from .schemes import SamplerCentricScheme, GoldenCdrScheme, StatisticalScheme
 from .visualization import plot_eye_diagram, save_eye_diagram
 
 
@@ -16,9 +16,10 @@ class UnifiedEyeAnalyzer:
     """
     Unified entry point for eye diagram analysis.
     
-    This class provides a simple interface to both analysis schemes:
+    This class provides a simple interface to three analysis schemes:
     - 'sampler_centric': Streaming scheme based on CDR sampling timestamps
     - 'golden_cdr': Standard scheme based on ideal clock
+    - 'statistical': Statistical eye analysis based on pulse response
     
     Example:
         >>> # Sampler-Centric scheme
@@ -30,6 +31,10 @@ class UnifiedEyeAnalyzer:
         >>> analyzer = UnifiedEyeAnalyzer(ui=2.5e-11, scheme='golden_cdr')
         >>> metrics = analyzer.analyze(time, voltage)
         >>> analyzer.plot('eye_golden.png')
+        
+        >>> # Statistical scheme
+        >>> analyzer = UnifiedEyeAnalyzer(ui=2.5e-11, scheme='statistical')
+        >>> metrics = analyzer.analyze(pulse_response)
     """
     
     def __init__(self, ui: float, scheme: str = 'sampler_centric',
@@ -50,7 +55,7 @@ class UnifiedEyeAnalyzer:
         Raises:
             ValueError: If scheme is invalid
         """
-        valid_schemes = ['sampler_centric', 'golden_cdr']
+        valid_schemes = ['sampler_centric', 'golden_cdr', 'statistical']
         if scheme not in valid_schemes:
             raise ValueError(
                 f"Invalid scheme '{scheme}'. "
@@ -70,7 +75,7 @@ class UnifiedEyeAnalyzer:
                 amp_bins=amp_bins,
                 interp_method=interp_method
             )
-        else:  # golden_cdr
+        elif scheme == 'golden_cdr':
             jitter_method = kwargs.get('jitter_method', 'dual-dirac')
             # Golden CDR typically uses equal bins for both axes
             if amp_bins == 256:  # If using default, adjust for golden_cdr
@@ -81,18 +86,39 @@ class UnifiedEyeAnalyzer:
                 amp_bins=amp_bins,
                 jitter_method=jitter_method
             )
+        else:  # statistical
+            modulation = kwargs.get('modulation', 'nrz')
+            samples_per_symbol = kwargs.get('samples_per_symbol', 8)
+            noise_sigma = kwargs.get('noise_sigma', 0.0)
+            jitter_dj = kwargs.get('jitter_dj', 0.0)
+            jitter_rj = kwargs.get('jitter_rj', 0.0)
+            target_ber = kwargs.get('target_ber', 1e-12)
+            self._scheme = StatisticalScheme(
+                ui=ui,
+                modulation=modulation,
+                samples_per_symbol=samples_per_symbol,
+                ui_bins=ui_bins,
+                amp_bins=amp_bins,
+                noise_sigma=noise_sigma,
+                jitter_dj=jitter_dj,
+                jitter_rj=jitter_rj,
+                target_ber=target_ber
+            )
     
-    def analyze(self, time_array: np.ndarray, voltage_array: np.ndarray,
+    def analyze(self, data: np.ndarray,
+                voltage_array: Optional[np.ndarray] = None,
                 sampler_timestamps: Optional[np.ndarray] = None,
                 **kwargs) -> Dict[str, Any]:
         """
         Perform eye diagram analysis.
         
         Args:
-            time_array: Time array in seconds (64x oversampled)
-            voltage_array: Voltage array in volts
+            data: For 'sampler_centric' and 'golden_cdr': time array in seconds.
+                  For 'statistical': pulse response array.
+            voltage_array: Voltage array in volts (required for sampler_centric/golden_cdr)
             sampler_timestamps: CDR sampling timestamps (required for sampler_centric)
             **kwargs: Additional arguments passed to the scheme
+                - For 'statistical': noise_sigma, jitter_dj, jitter_rj, target_ber
             
         Returns:
             Dictionary containing analysis metrics
@@ -101,14 +127,24 @@ class UnifiedEyeAnalyzer:
             ValueError: If required arguments are missing
         """
         if self.scheme_name == 'sampler_centric':
+            if voltage_array is None:
+                raise ValueError("voltage_array is required for sampler_centric scheme")
             self._metrics = self._scheme.analyze(
-                time_array, voltage_array, 
+                data, voltage_array, 
                 sampler_timestamps=sampler_timestamps,
                 **kwargs
             )
-        else:
+        elif self.scheme_name == 'golden_cdr':
+            if voltage_array is None:
+                raise ValueError("voltage_array is required for golden_cdr scheme")
             self._metrics = self._scheme.analyze(
-                time_array, voltage_array,
+                data, voltage_array,
+                **kwargs
+            )
+        else:  # statistical
+            # Statistical scheme takes pulse_response directly
+            self._metrics = self._scheme.analyze(
+                data,  # pulse_response
                 **kwargs
             )
         
