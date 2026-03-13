@@ -1,70 +1,96 @@
-# Batch 1 进度: 基础架构 - 调制格式与 Scheme 重构
+# Batch 2 进度: 统计眼图核心
 
-## Task 1.1: 创建调制格式抽象层 ✅ 已完成
+## Batch 1 已完成 ✅
 
-**Task Goal:** 创建 `modulation.py` 实现调制格式抽象层，支持 PAM4 和 NRZ，预留 PAM3/PAM6/PAM8 扩展。
-
-**完成状态:**
-- ✅ 测试文件: `tests/unit/test_modulation.py` (6个测试)
-- ✅ 实现文件: `eye_analyzer/modulation.py`
-- ✅ 所有测试通过
-- ✅ 已提交: `f7066df`
+所有基础架构任务完成：
+- Task 1.1: modulation.py (6 tests) ✅
+- Task 1.2: BaseScheme 重构 (7 tests) ✅
+- Task 1.3: GoldenCdrScheme PAM4 (5 tests) ✅
+- Task 1.4: SamplerCentricScheme (2 tests) ✅
 
 ---
 
-## Task 1.2: 重构 BaseScheme 支持 modulation 参数 ✅ 已完成
+## Batch 2: 统计眼图核心
 
-**Task Goal:** 修改 `schemes/base.py`，添加 `modulation` 参数支持，使 BaseScheme 能接受字符串或 ModulationFormat 对象。
+**Goal:** 创建统计眼图分析子系统，包括脉冲响应处理、ISI 计算、噪声/抖动注入、BER 计算。
 
-**完成状态:**
-- ✅ 测试文件: `tests/unit/test_schemes_base.py` (7个测试)
-- ✅ 实现修改: `eye_analyzer/schemes/base.py`
-- ✅ 所有新测试通过
-- ✅ 已提交: `cdb06d3`
-
-**关键修改:**
-- `__init__(self, ui, modulation='nrz', ui_bins=128, amp_bins=256)`
-- 支持 `modulation='pam4'` 字符串或 `modulation=PAM4()` 对象
-- 默认 'nrz' 保持向后兼容
+**基于:** pystateye 算法重构
 
 ---
 
-## Task 1.3: 重构 GoldenCdrScheme 支持 PAM4
+## Task 2.1: 创建 statistical/ 子包结构
 
-**Task Goal:** 修改 `schemes/golden_cdr.py`，添加 PAM4 眼图分析支持。
-
-**Project Conventions:**
-- 继承 BaseScheme（已支持 modulation）
-- 针对 PAM4 计算每个眼的指标
-- 保持 NRZ 兼容性
+**Files:**
+- Create: `eye_analyzer/statistical/__init__.py`
+- Create: `eye_analyzer/statistical/pulse_response.py`
 
 **Steps:**
 
-### Step 1: Write the failing test
-- [ ] 创建 `tests/unit/test_golden_cdr_pam4.py`
-- 生成 PAM4 测试波形
-- 测试 PAM4 分析返回多眼指标
-- 测试 NRZ 仍然工作
+### Step 1: Create package init
+- [ ] 创建 `__init__.py`，导出核心类
 
-### Step 2: Run test to verify it fails
-- [ ] 运行测试，确认缺失方法
+### Step 2: Create PulseResponseProcessor
+- [ ] 实现脉冲响应预处理
+- [ ] DC 去除、窗口提取、差分转换、上采样
 
-### Step 3: Write implementation
-- [ ] 修改 `schemes/golden_cdr.py`
-- 添加 PAM4 专用分析方法
-- 计算每个眼的眼高/眼宽
+### Step 3: Write tests
+- [ ] 创建 `tests/unit/test_pulse_response.py`
 
-### Step 4: Run test to verify it passes
-- [ ] 运行测试，全部通过
+### Step 4: Run tests
+- [ ] 验证通过
 
 ### Step 5: Commit
 - [ ] git commit
 
-**Acceptance Criteria:**
-- [ ] PAM4 分析返回 3 个眼的指标
-- [ ] NRZ 分析仍然工作
-- [ ] 单元测试通过
+---
 
-**Constraints:**
-- 使用 BaseScheme.modulation 获取格式信息
-- 不要重复计算逻辑
+## Task 2.2: ISI Calculator
+
+**Files:**
+- Create: `eye_analyzer/statistical/isi_calculator.py`
+- Test: `tests/unit/test_isi_calculator.py`
+
+**Steps:**
+1. Write failing test
+2. Run to verify failure
+3. Implement ISICalculator (convolution + brute_force)
+4. Run tests
+5. Commit
+
+---
+
+## Task 2.3: Noise Injector
+
+**Files:**
+- Create: `eye_analyzer/statistical/noise_injector.py`
+- Test: `tests/unit/test_noise_injector.py`
+
+---
+
+## Task 2.4: Jitter Injector
+
+**Files:**
+- Create: `eye_analyzer/statistical/jitter_injector.py`
+- Test: `tests/unit/test_jitter_injector.py`
+
+---
+
+## Task 2.5: BER Contour Calculator
+
+**Files:**
+- Create: `eye_analyzer/statistical/ber_calculator.py`
+- Test: `tests/unit/test_ber_calculator.py`
+
+---
+
+## Task 2.6: StatisticalScheme
+
+**Files:**
+- Create: `eye_analyzer/schemes/statistical.py`
+- Test: `tests/unit/test_statistical_scheme.py`
+
+---
+
+## Current Status
+
+**In Progress:** Task 2.1 - 创建 statistical/ 子包
