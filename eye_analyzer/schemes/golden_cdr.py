@@ -12,12 +12,13 @@ Key characteristics:
 - Jitter analysis: TIE extraction + Dual-Dirac model
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 
 from .base import BaseScheme
 from ..jitter import JitterDecomposer
+from ..modulation import ModulationFormat
 
 
 class GoldenCdrScheme(BaseScheme):
@@ -50,20 +51,25 @@ class GoldenCdrScheme(BaseScheme):
         >>> print(f"RJ: {metrics['rj_sigma']*1e12:.2f} ps")
     """
     
-    def __init__(self, ui: float, ui_bins: int = 128, amp_bins: int = 128,
+    def __init__(self, 
+                 ui: float, 
+                 modulation: Union[str, ModulationFormat] = 'nrz',
+                 ui_bins: int = 128, 
+                 amp_bins: int = 128,
                  jitter_method: str = 'dual-dirac'):
         """
         Initialize the Golden CDR scheme.
         
         Args:
             ui: Unit interval in seconds
+            modulation: Modulation format ('nrz', 'pam4') or ModulationFormat object
             ui_bins: Number of bins for phase axis (default: 128, covers 2 UI)
             amp_bins: Number of bins for amplitude axis (default: 128)
             jitter_method: Jitter extraction method
                           ('dual-dirac', 'tail-fit', 'auto')
                           Default: 'dual-dirac'
         """
-        super().__init__(ui, ui_bins, amp_bins)
+        super().__init__(ui, modulation, ui_bins, amp_bins)
         self.jitter_method = jitter_method
         self._jitter_decomposer = JitterDecomposer(ui, jitter_method)
         
@@ -125,13 +131,21 @@ class GoldenCdrScheme(BaseScheme):
         self._xedges = np.linspace(-0.5, 1.5, self.ui_bins + 1)
         self._yedges = np.linspace(self._v_min - v_margin, self._v_max + v_margin, self.amp_bins + 1)
         
-        # Step 4: Compute eye metrics
+        # Step 4: Compute eye metrics based on modulation
+        if self.modulation.name == 'pam4':
+            return self._compute_metrics_pam4(voltage_array, target_ber)
+        else:
+            return self._compute_metrics_nrz(voltage_array, target_ber)
+    
+    def _compute_metrics_nrz(self, voltage_array: np.ndarray, 
+                             target_ber: float) -> Dict[str, Any]:
+        """Compute eye metrics for NRZ modulation."""
         eye_height = self._compute_eye_height()
         eye_width = self._compute_eye_width()
         eye_area = self._compute_eye_area(eye_height, eye_width)
         
-        # Step 5: Jitter decomposition (use phase folding for jitter analysis)
-        phase = (time_array % self.ui) / self.ui
+        # Jitter decomposition
+        phase = (np.arange(len(voltage_array)) * self.ui / len(voltage_array)) % self.ui / self.ui
         try:
             jitter_metrics = self._jitter_decomposer.extract(
                 phase, voltage_array, target_ber
@@ -143,9 +157,156 @@ class GoldenCdrScheme(BaseScheme):
             'eye_height': float(eye_height),
             'eye_width': float(eye_width),
             'eye_area': float(eye_area),
+            'modulation': 'nrz',
             'scheme': 'golden_cdr',
             **jitter_metrics
         }
+    
+    def _compute_metrics_pam4(self, voltage_array: np.ndarray,
+                              target_ber: float) -> Dict[str, Any]:
+        """Compute eye metrics for PAM4 modulation (3 eyes)."""
+        # Compute per-eye metrics
+        eye_heights = self._compute_eye_heights_per_eye()
+        eye_widths = self._compute_eye_widths_per_eye()
+        
+        # Aggregate metrics
+        eye_height_min = min(eye_heights) if eye_heights else 0.0
+        eye_height_avg = sum(eye_heights) / len(eye_heights) if eye_heights else 0.0
+        eye_width_min = min(eye_widths) if eye_widths else 0.0
+        eye_width_avg = sum(eye_widths) / len(eye_widths) if eye_widths else 0.0
+        eye_area = eye_height_avg * eye_width_avg
+        
+        # Jitter decomposition (use center eye threshold)
+        thresholds = self.modulation.get_thresholds()
+        center_threshold = thresholds[1] if len(thresholds) > 1 else 0.0
+        
+        phase = (np.arange(len(voltage_array)) * self.ui / len(voltage_array)) % self.ui / self.ui
+        try:
+            jitter_metrics = self._jitter_decomposer.extract(
+                phase, voltage_array, target_ber
+            )
+        except (ValueError, RuntimeError):
+            jitter_metrics = self._default_jitter_metrics(target_ber)
+        
+        return {
+            'eye_heights_per_eye': eye_heights,
+            'eye_widths_per_eye': eye_widths,
+            'eye_height': float(eye_height_avg),
+            'eye_height_min': float(eye_height_min),
+            'eye_height_avg': float(eye_height_avg),
+            'eye_width': float(eye_width_avg),
+            'eye_width_min': float(eye_width_min),
+            'eye_width_avg': float(eye_width_avg),
+            'eye_area': float(eye_area),
+            'modulation': 'pam4',
+            'num_eyes': 3,
+            'scheme': 'golden_cdr',
+            **jitter_metrics
+        }
+    
+    def _compute_eye_heights_per_eye(self) -> list:
+        """Compute eye height for each PAM4 eye."""
+        if self.eye_matrix is None or self._yedges is None:
+            return [0.0, 0.0, 0.0]
+        
+        thresholds = self.modulation.get_thresholds()
+        eye_heights = []
+        
+        y_centers = (self._yedges[:-1] + self._yedges[1:]) / 2
+        
+        for threshold in thresholds:
+            height = self._compute_eye_height_at_threshold(threshold, y_centers)
+            eye_heights.append(height)
+        
+        return eye_heights
+    
+    def _compute_eye_widths_per_eye(self) -> list:
+        """Compute eye width for each PAM4 eye at respective decision thresholds."""
+        if self.eye_matrix is None or self._xedges is None:
+            return [0.0, 0.0, 0.0]
+        
+        eye_widths = []
+        thresholds = self.modulation.get_thresholds()
+        y_centers = (self._yedges[:-1] + self._yedges[1:]) / 2
+        
+        for threshold in thresholds:
+            # Find the eye region around this threshold
+            # Look for low density region (eye opening) at this threshold level
+            
+            # Find y indices near the threshold
+            threshold_idx = np.argmin(np.abs(y_centers - threshold))
+            
+            # Get phase profile at this threshold level
+            phase_profile = self.eye_matrix[:, threshold_idx]
+            
+            if phase_profile.max() == 0:
+                eye_widths.append(0.0)
+                continue
+            
+            # Normalize
+            phase_profile_norm = phase_profile / phase_profile.max()
+            
+            # Find low-density region (eye opening) using threshold
+            density_threshold = 0.3  # 30% of max density
+            
+            # Find center (lowest density)
+            center_idx = len(phase_profile) // 2
+            
+            # Search left from center for boundary
+            left_idx = center_idx
+            for i in range(center_idx, -1, -1):
+                if phase_profile_norm[i] > density_threshold:
+                    left_idx = i
+                    break
+            else:
+                left_idx = 0
+            
+            # Search right from center for boundary  
+            right_idx = center_idx
+            for i in range(center_idx, len(phase_profile_norm)):
+                if phase_profile_norm[i] > density_threshold:
+                    right_idx = i
+                    break
+            else:
+                right_idx = len(phase_profile_norm) - 1
+            
+            # Calculate width
+            x_centers = (self._xedges[:-1] + self._xedges[1:]) / 2
+            eye_width = x_centers[right_idx] - x_centers[left_idx]
+            eye_widths.append(max(0.0, eye_width))
+        
+        return eye_widths
+    
+    def _compute_eye_height_at_threshold(self, threshold: float, 
+                                         y_centers: np.ndarray) -> float:
+        """Compute eye height at a specific decision threshold."""
+        if self.eye_matrix is None:
+            return 0.0
+        
+        # Find optimal phase (column with maximum density)
+        phase_density = np.sum(self.eye_matrix, axis=1)
+        optimal_phase_idx = np.argmax(phase_density)
+        
+        # Get amplitude profile at optimal phase
+        amplitude_profile = self.eye_matrix[optimal_phase_idx, :]
+        
+        if np.sum(amplitude_profile) == 0:
+            return 0.0
+        
+        # Find upper and lower eyes relative to threshold
+        upper_mask = y_centers > threshold
+        lower_mask = y_centers < threshold
+        
+        if not np.any(upper_mask) or not np.any(lower_mask):
+            return 0.0
+        
+        # Compute weighted centroids for upper and lower eyes
+        upper_centroid = np.average(y_centers[upper_mask], 
+                                    weights=amplitude_profile[upper_mask])
+        lower_centroid = np.average(y_centers[lower_mask],
+                                    weights=amplitude_profile[lower_mask])
+        
+        return float(upper_centroid - lower_centroid)
     
     def _upsample_waveform(self, time_array: np.ndarray, 
                           voltage_array: np.ndarray,

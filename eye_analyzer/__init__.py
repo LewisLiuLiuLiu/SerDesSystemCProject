@@ -1,62 +1,130 @@
-"""
-EyeAnalyzer - SerDes Link Eye Diagram Analysis Tool
+"""Eye Analyzer - SerDes Signal Integrity Analysis Platform.
 
-A Python tool for analyzing eye diagrams from SystemC-AMS simulation output.
-Supports eye diagram construction, eye height/width calculation, jitter decomposition,
-and visualization.
+A comprehensive Python toolkit for eye diagram analysis, BER computation,
+and jitter tolerance testing. Supports NRZ and PAM4 modulation formats.
 
-Two analysis schemes are supported:
-- Sampler-Centric: Uses CDR sampling timestamps as time reference (2-UI window)
-- Golden CDR: Uses ideal clock for standardized assessment (1-UI window)
-
-Version: 2.0.0
-Author: SerDes SystemC Project Team
+Example:
+    >>> from eye_analyzer import EyeAnalyzer
+    >>> analyzer = EyeAnalyzer(ui=2.5e-11, modulation='pam4')
+    >>> result = analyzer.analyze(pulse_response)
+    >>> analyzer.plot_eye()
 """
 
-# Original EyeAnalyzer (Golden CDR full implementation)
-from .core import EyeAnalyzer, analyze_eye
+__version__ = '2.0.0'
 
-# New unified analyzer supporting both schemes
-from .analyzer import UnifiedEyeAnalyzer
+# ============================================================================
+# Core Analyzer (Unified Entry Point)
+# ============================================================================
+from .analyzer import EyeAnalyzer
 
-# Individual scheme classes
-from .schemes import SamplerCentricScheme, GoldenCdrScheme, BaseScheme
+# ============================================================================
+# Modulation Formats
+# ============================================================================
+from .modulation import (
+    ModulationFormat,
+    NRZ,
+    PAM4,
+    create_modulation,
+)
 
-# Visualization utilities
-from .visualization import plot_eye_diagram, save_eye_diagram
+# ============================================================================
+# Scheme Classes
+# ============================================================================
+from .schemes import (
+    BaseScheme,
+    GoldenCdrScheme,
+    SamplerCentricScheme,
+    StatisticalScheme,
+)
 
-# Data loading utilities
-from .io import auto_load_waveform
+# ============================================================================
+# Statistical Analysis (Pre-simulation)
+# ============================================================================
+from .statistical import (
+    PulseResponseProcessor,
+    ISICalculator,
+    NoiseInjector,
+    JitterInjector,
+    BERCalculator,
+)
 
-# Jitter decomposition
-from .jitter import JitterDecomposer
+# ============================================================================
+# BER Analysis
+# ============================================================================
+from .ber import (
+    BERAnalyzer,
+    BERContour,
+    BathtubCurve,
+    QFactor,
+    JTolTemplate,
+    JitterTolerance,
+)
 
-# Interpolation utilities (for advanced usage)
-from .interpolation import interpolate_window, is_valid_window
+# ============================================================================
+# Jitter Analysis
+# ============================================================================
+from .jitter import (
+    JitterAnalyzer,
+    JitterDecomposer,
+)
 
-__version__ = "2.0.0"
+# ============================================================================
+# Visualization
+# ============================================================================
+from .visualization import (
+    plot_eye_diagram,
+    plot_jtol_curve,
+    plot_bathtub_curve,
+    create_analysis_report,
+)
+
+# ============================================================================
+# Backward Compatibility Aliases
+# ============================================================================
+UnifiedEyeAnalyzer = EyeAnalyzer  # Legacy name compatibility
+
 __all__ = [
-    # Main analyzers
-    "EyeAnalyzer",           # Original (Golden CDR full implementation)
-    "UnifiedEyeAnalyzer",    # New unified entry point
-    "analyze_eye",           # Convenience function
+    # Version
+    '__version__',
     
-    # Scheme classes
-    "SamplerCentricScheme",
-    "GoldenCdrScheme",
-    "BaseScheme",
+    # Core
+    'EyeAnalyzer',
+    'UnifiedEyeAnalyzer',
+    
+    # Modulation
+    'ModulationFormat',
+    'NRZ',
+    'PAM4',
+    'create_modulation',
+    
+    # Schemes
+    'BaseScheme',
+    'GoldenCdrScheme',
+    'SamplerCentricScheme',
+    'StatisticalScheme',
+    
+    # Statistical
+    'PulseResponseProcessor',
+    'ISICalculator',
+    'NoiseInjector',
+    'JitterInjector',
+    'BERCalculator',
+    
+    # BER
+    'BERAnalyzer',
+    'BERContour',
+    'BathtubCurve',
+    'QFactor',
+    'JTolTemplate',
+    'JitterTolerance',
+    
+    # Jitter
+    'JitterAnalyzer',
+    'JitterDecomposer',
     
     # Visualization
-    "plot_eye_diagram",
-    "save_eye_diagram",
-    
-    # Data loading
-    "auto_load_waveform",
-    
-    # Jitter analysis
-    "JitterDecomposer",
-    
-    # Interpolation (advanced)
-    "interpolate_window",
-    "is_valid_window",
+    'plot_eye_diagram',
+    'plot_jtol_curve',
+    'plot_bathtub_curve',
+    'create_analysis_report',
 ]

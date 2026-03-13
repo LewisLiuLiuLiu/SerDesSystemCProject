@@ -6,8 +6,10 @@ Both SamplerCentricScheme and GoldenCdrScheme inherit from this base class.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Union
 import numpy as np
+
+from ..modulation import ModulationFormat, create_modulation
 
 
 class BaseScheme(ABC):
@@ -20,6 +22,7 @@ class BaseScheme(ABC):
     
     Attributes:
         ui: Unit interval in seconds
+        modulation: Modulation format (NRZ, PAM4, etc.)
         ui_bins: Number of bins for time/phase axis
         amp_bins: Number of bins for amplitude axis
         eye_matrix: 2D histogram matrix for eye diagram
@@ -27,12 +30,18 @@ class BaseScheme(ABC):
         _yedges: Y-axis bin edges (voltage)
     """
     
-    def __init__(self, ui: float, ui_bins: int = 128, amp_bins: int = 256):
+    def __init__(self, 
+                 ui: float, 
+                 modulation: Union[str, ModulationFormat] = 'nrz',
+                 ui_bins: int = 128, 
+                 amp_bins: int = 256):
         """
         Initialize the base scheme.
         
         Args:
             ui: Unit interval in seconds (e.g., 2.5e-11 for 40 Gbps)
+            modulation: Modulation format, either string ('nrz', 'pam4') or 
+                       ModulationFormat object. Defaults to 'nrz'.
             ui_bins: Number of bins for time/phase axis (default: 128)
             amp_bins: Number of bins for amplitude axis (default: 256)
             
@@ -49,6 +58,13 @@ class BaseScheme(ABC):
         self.ui = ui
         self.ui_bins = ui_bins
         self.amp_bins = amp_bins
+        
+        # Support both string and ModulationFormat object
+        if isinstance(modulation, str):
+            self.modulation = create_modulation(modulation)
+        else:
+            self.modulation = modulation
+            
         self.eye_matrix: Optional[np.ndarray] = None
         self._xedges: Optional[np.ndarray] = None
         self._yedges: Optional[np.ndarray] = None

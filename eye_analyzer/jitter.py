@@ -11,7 +11,7 @@ Supports:
 - Multiple extraction methods: 'dual-dirac', 'tail-fit', 'auto'
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List, Union
 import numpy as np
 from scipy.signal import find_peaks, welch
 from scipy.optimize import curve_fit
@@ -542,3 +542,244 @@ class JitterDecomposer:
         probabilities = self._last_histogram
 
         return time_offsets_seconds, probabilities
+
+
+class JitterAnalyzer:
+    """Jitter analyzer supporting NRZ and PAM4 multi-eye analysis."""
+    
+    def __init__(self, modulation: str = 'nrz', signal_amplitude: float = 1.0):
+        """
+        Initialize jitter analyzer.
+        
+        Args:
+            modulation: Modulation format ('nrz' or 'pam4')
+            signal_amplitude: Signal amplitude in volts
+            
+        Raises:
+            ValueError: If modulation is not 'nrz' or 'pam4'
+        """
+        if modulation not in ['nrz', 'pam4']:
+            raise ValueError(f"Invalid modulation '{modulation}'. Must be 'nrz' or 'pam4'")
+        
+        self.modulation = modulation
+        self.signal_amplitude = signal_amplitude
+        
+        # Define eye thresholds and names based on modulation
+        if modulation == 'pam4':
+            # PAM4: 4 levels (-3A, -A, A, 3A), 3 eyes between them
+            # Thresholds at -2A, 0, 2A where A = signal_amplitude/3 for symmetric levels
+            A = signal_amplitude * 2 / 3  # Scale to get levels at -0.75, -0.25, 0.25, 0.75
+            self._thresholds = [-A, 0, A]
+            self._eye_names = ['lower', 'middle', 'upper']
+            self._eye_centers = [-signal_amplitude/2, 0, signal_amplitude/2]
+        else:
+            # NRZ: 2 levels, 1 eye at 0
+            self._thresholds = [0.0]
+            self._eye_names = ['center']
+            self._eye_centers = [0.0]
+    
+    def analyze(self, signal: np.ndarray, time: np.ndarray, 
+                ber: float = 1e-12) -> Union[Dict[str, float], List[Dict[str, Any]]]:
+        """
+        Analyze jitter in the signal.
+        
+        Args:
+            signal: Signal amplitude array
+            time: Time array corresponding to signal
+            ber: Target bit error rate for TJ calculation
+            
+        Returns:
+            For NRZ: {'rj': float, 'dj': float, 'tj': float}
+            For PAM4: [{'eye_id': 0, 'eye_name': 'lower', 'rj': ..., 'dj': ..., 'tj': ...}, ...]
+        """
+        if self.modulation == 'nrz':
+            return self._analyze_nrz(signal, time, ber)
+        else:
+            return self._analyze_pam4(signal, time, ber)
+    
+    def _analyze_nrz(self, signal: np.ndarray, time: np.ndarray, 
+                     ber: float) -> Dict[str, float]:
+        """Analyze jitter for NRZ signal."""
+        # Extract crossing points at threshold=0
+        crossings = self.extract_crossing_points(signal, threshold=0.0, edge='rising')
+        
+        if len(crossings) < 10:
+            # Not enough crossings, return zeros
+            return {'rj': 0.0, 'dj': 0.0, 'tj': 0.0}
+        
+        # Calculate UI from average crossing interval
+        ui = np.mean(np.diff(crossings))
+        
+        # Fit dual-dirac model to crossing points
+        rj, dj = self.fit_dual_dirac(crossings)
+        
+        # Calculate TJ
+        tj = self.calculate_tj(rj, dj, ber)
+        
+        return {'rj': rj, 'dj': dj, 'tj': tj}
+    
+    def _analyze_pam4(self, signal: np.ndarray, time: np.ndarray, 
+                      ber: float) -> List[Dict[str, Any]]:
+        """Analyze jitter for PAM4 signal (all three eyes)."""
+        results = []
+        
+        for eye_id, (threshold, eye_name) in enumerate(zip(self._thresholds, self._eye_names)):
+            # Extract crossing points for this eye
+            try:
+                crossings = self.extract_crossing_points(signal, threshold=threshold, edge='rising')
+            except ValueError:
+                crossings = np.array([])
+            
+            if len(crossings) < 10:
+                # Not enough crossings for this eye
+                results.append({
+                    'eye_id': eye_id,
+                    'eye_name': eye_name,
+                    'rj': 0.0,
+                    'dj': 0.0,
+                    'tj': 0.0
+                })
+                continue
+            
+            # Fit dual-dirac model
+            rj, dj = self.fit_dual_dirac(crossings)
+            tj = self.calculate_tj(rj, dj, ber)
+            
+            results.append({
+                'eye_id': eye_id,
+                'eye_name': eye_name,
+                'rj': rj,
+                'dj': dj,
+                'tj': tj
+            })
+        
+        return results
+    
+    def extract_crossing_points(self, signal: np.ndarray, threshold: float, 
+                                edge: str = 'rising') -> np.ndarray:
+        """
+        Extract crossing points from signal.
+        
+        Args:
+            signal: Signal amplitude array
+            threshold: Threshold level for crossing detection
+            edge: Edge type ('rising', 'falling', or 'both')
+            
+        Returns:
+            Array of crossing point time indices (normalized)
+            
+        Raises:
+            ValueError: If edge is not 'rising', 'falling', or 'both'
+        """
+        if edge not in ['rising', 'falling', 'both']:
+            raise ValueError(f"Invalid edge '{edge}'. Must be 'rising', 'falling', or 'both'")
+        
+        # Find crossings using sign change
+        # Use >= to handle values exactly at threshold (treat as above)
+        above_threshold = signal >= threshold
+        crossing_indices = np.where(np.diff(above_threshold.astype(int)) != 0)[0]
+        
+        if len(crossing_indices) == 0:
+            return np.array([])
+        
+        # Determine edge direction
+        # crossing_indices[i] is the index BEFORE the crossing happens
+        # so we check the value at that index to determine direction
+        if edge == 'rising':
+            # Rising edge: signal was below threshold before crossing
+            rising_mask = signal[crossing_indices] < threshold
+            crossing_indices = crossing_indices[rising_mask]
+        elif edge == 'falling':
+            # Falling edge: signal was above threshold before crossing
+            falling_mask = signal[crossing_indices] > threshold
+            crossing_indices = crossing_indices[falling_mask]
+        
+        # Return normalized crossing positions (as fraction of total samples)
+        return crossing_indices.astype(float)
+    
+    def fit_dual_dirac(self, crossing_points: np.ndarray) -> Tuple[float, float]:
+        """
+        Fit dual-Dirac model to crossing points.
+        
+        Args:
+            crossing_points: Array of crossing point positions
+            
+        Returns:
+            Tuple of (rj, dj) where:
+            - rj: Random jitter (sigma of Gaussian)
+            - dj: Deterministic jitter (peak-to-peak separation)
+        """
+        if len(crossing_points) < 10:
+            return 0.0, 0.0
+        
+        # Convert to relative timing offsets
+        # Use average interval as UI reference
+        intervals = np.diff(crossing_points)
+        if len(intervals) == 0:
+            return 0.0, 0.0
+        
+        ui_samples = np.median(intervals)
+        
+        # Calculate timing offsets modulo UI
+        # Normalize crossing points to UI units
+        normalized_crossings = crossing_points / ui_samples
+        fractional_offsets = normalized_crossings - np.round(normalized_crossings)
+        
+        # Build histogram of timing offsets
+        hist, bin_edges = np.histogram(fractional_offsets, bins=100, density=True)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        
+        # Try to fit dual Gaussian
+        def dual_gaussian(x, a1, mu1, sigma1, a2, mu2, sigma2):
+            return (a1 / (sigma1 * np.sqrt(2 * np.pi)) *
+                    np.exp(-0.5 * ((x - mu1) / sigma1) ** 2) +
+                    a2 / (sigma2 * np.sqrt(2 * np.pi)) *
+                    np.exp(-0.5 * ((x - mu2) / sigma2) ** 2))
+        
+        try:
+            # Detect peaks for initial guess
+            peak_indices, _ = find_peaks(hist, height=np.max(hist) * 0.1)
+            
+            if len(peak_indices) >= 2:
+                # Bimodal distribution - use two peaks
+                mu1_init = bin_centers[peak_indices[0]]
+                mu2_init = bin_centers[peak_indices[-1]]
+            else:
+                # Try symmetric initialization
+                mu1_init, mu2_init = -0.05, 0.05
+            
+            initial_guess = [0.5, mu1_init, 0.02, 0.5, mu2_init, 0.02]
+            
+            popt, _ = curve_fit(dual_gaussian, bin_centers, hist, 
+                               p0=initial_guess, maxfev=5000)
+            
+            a1, mu1, sigma1, a2, mu2, sigma2 = popt
+            
+            # Convert to time units
+            rj = (sigma1 + sigma2) / 2 * ui_samples
+            dj = abs(mu2 - mu1) * ui_samples
+            
+        except (RuntimeError, ValueError):
+            # Fit failed, use simple statistics
+            sigma = np.std(fractional_offsets)
+            rj = sigma * ui_samples
+            dj = 0.0
+        
+        return rj, dj
+    
+    def calculate_tj(self, rj: float, dj: float, ber: float = 1e-12) -> float:
+        """
+        Calculate total jitter from RJ and DJ components.
+        
+        Formula: TJ = DJ + 2 * Q(BER) * RJ
+        
+        Args:
+            rj: Random jitter (sigma)
+            dj: Deterministic jitter (peak-to-peak)
+            ber: Target bit error rate
+            
+        Returns:
+            Total jitter at specified BER
+        """
+        q_val = q_function(ber)
+        return dj + 2 * q_val * rj
