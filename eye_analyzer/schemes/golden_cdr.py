@@ -221,14 +221,61 @@ class GoldenCdrScheme(BaseScheme):
         return eye_heights
     
     def _compute_eye_widths_per_eye(self) -> list:
-        """Compute eye width for each PAM4 eye."""
-        if self.eye_matrix is None:
+        """Compute eye width for each PAM4 eye at respective decision thresholds."""
+        if self.eye_matrix is None or self._xedges is None:
             return [0.0, 0.0, 0.0]
         
-        # For now, use overall eye width for all eyes
-        # More sophisticated analysis would compute per-eye width
-        eye_width = self._compute_eye_width()
-        return [eye_width, eye_width, eye_width]
+        eye_widths = []
+        thresholds = self.modulation.get_thresholds()
+        y_centers = (self._yedges[:-1] + self._yedges[1:]) / 2
+        
+        for threshold in thresholds:
+            # Find the eye region around this threshold
+            # Look for low density region (eye opening) at this threshold level
+            
+            # Find y indices near the threshold
+            threshold_idx = np.argmin(np.abs(y_centers - threshold))
+            
+            # Get phase profile at this threshold level
+            phase_profile = self.eye_matrix[:, threshold_idx]
+            
+            if phase_profile.max() == 0:
+                eye_widths.append(0.0)
+                continue
+            
+            # Normalize
+            phase_profile_norm = phase_profile / phase_profile.max()
+            
+            # Find low-density region (eye opening) using threshold
+            density_threshold = 0.3  # 30% of max density
+            
+            # Find center (lowest density)
+            center_idx = len(phase_profile) // 2
+            
+            # Search left from center for boundary
+            left_idx = center_idx
+            for i in range(center_idx, -1, -1):
+                if phase_profile_norm[i] > density_threshold:
+                    left_idx = i
+                    break
+            else:
+                left_idx = 0
+            
+            # Search right from center for boundary  
+            right_idx = center_idx
+            for i in range(center_idx, len(phase_profile_norm)):
+                if phase_profile_norm[i] > density_threshold:
+                    right_idx = i
+                    break
+            else:
+                right_idx = len(phase_profile_norm) - 1
+            
+            # Calculate width
+            x_centers = (self._xedges[:-1] + self._xedges[1:]) / 2
+            eye_width = x_centers[right_idx] - x_centers[left_idx]
+            eye_widths.append(max(0.0, eye_width))
+        
+        return eye_widths
     
     def _compute_eye_height_at_threshold(self, threshold: float, 
                                          y_centers: np.ndarray) -> float:

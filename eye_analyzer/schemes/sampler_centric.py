@@ -165,20 +165,11 @@ class SamplerCentricScheme(BaseScheme):
             # Step 4: Accumulate to eye matrix
             self._accumulate_to_eye_matrix(resampled_voltage)
         
-        # Compute metrics
-        eye_height = self._compute_eye_height()
-        eye_width = self._compute_eye_width()
-        eye_area = self._compute_eye_area(eye_height, eye_width)
-        
-        return {
-            'eye_height': float(eye_height),
-            'eye_width': float(eye_width),
-            'eye_area': float(eye_area),
-            'scheme': 'sampler_centric',
-            'num_valid_samples': self._num_valid_samples,
-            'num_skipped_samples': self._num_skipped_samples,
-            'total_samples': len(sampler_timestamps)
-        }
+        # Compute metrics based on modulation
+        if self.modulation.name == 'pam4':
+            return self._compute_metrics_pam4(sampler_timestamps)
+        else:
+            return self._compute_metrics_nrz(sampler_timestamps)
     
     def _extract_window(self, time_array: np.ndarray,
                        voltage_array: np.ndarray,
@@ -260,6 +251,155 @@ class SamplerCentricScheme(BaseScheme):
             'num_skipped_samples': len(sampler_timestamps),
             'total_samples': len(sampler_timestamps)
         }
+    
+    def _compute_metrics_nrz(self, sampler_timestamps: np.ndarray) -> Dict[str, Any]:
+        """Compute eye metrics for NRZ modulation."""
+        eye_height = self._compute_eye_height()
+        eye_width = self._compute_eye_width()
+        eye_area = self._compute_eye_area(eye_height, eye_width)
+        
+        return {
+            'eye_height': float(eye_height),
+            'eye_width': float(eye_width),
+            'eye_area': float(eye_area),
+            'modulation': 'nrz',
+            'scheme': 'sampler_centric',
+            'num_valid_samples': self._num_valid_samples,
+            'num_skipped_samples': self._num_skipped_samples,
+            'total_samples': len(sampler_timestamps)
+        }
+    
+    def _compute_metrics_pam4(self, sampler_timestamps: np.ndarray) -> Dict[str, Any]:
+        """Compute eye metrics for PAM4 modulation (3 eyes)."""
+        # Compute per-eye metrics using thresholds
+        eye_heights = self._compute_eye_heights_per_eye()
+        eye_widths = self._compute_eye_widths_per_eye()
+        
+        # Aggregate metrics
+        eye_height_min = min(eye_heights) if eye_heights else 0.0
+        eye_height_avg = sum(eye_heights) / len(eye_heights) if eye_heights else 0.0
+        eye_width_min = min(eye_widths) if eye_widths else 0.0
+        eye_width_avg = sum(eye_widths) / len(eye_widths) if eye_widths else 0.0
+        eye_area = eye_height_avg * eye_width_avg
+        
+        return {
+            'eye_heights_per_eye': eye_heights,
+            'eye_widths_per_eye': eye_widths,
+            'eye_height': float(eye_height_avg),
+            'eye_height_min': float(eye_height_min),
+            'eye_height_avg': float(eye_height_avg),
+            'eye_width': float(eye_width_avg),
+            'eye_width_min': float(eye_width_min),
+            'eye_width_avg': float(eye_width_avg),
+            'eye_area': float(eye_area),
+            'modulation': 'pam4',
+            'num_eyes': 3,
+            'scheme': 'sampler_centric',
+            'num_valid_samples': self._num_valid_samples,
+            'num_skipped_samples': self._num_skipped_samples,
+            'total_samples': len(sampler_timestamps)
+        }
+    
+    def _compute_eye_heights_per_eye(self) -> list:
+        """Compute eye height for each PAM4 eye."""
+        if self.eye_matrix is None or self._yedges is None:
+            return [0.0, 0.0, 0.0]
+        
+        thresholds = self.modulation.get_thresholds()
+        eye_heights = []
+        
+        y_centers = (self._yedges[:-1] + self._yedges[1:]) / 2
+        
+        for threshold in thresholds:
+            height = self._compute_eye_height_at_threshold(threshold, y_centers)
+            eye_heights.append(height)
+        
+        return eye_heights
+    
+    def _compute_eye_widths_per_eye(self) -> list:
+        """Compute eye width for each PAM4 eye."""
+        if self.eye_matrix is None or self._xedges is None:
+            return [0.0, 0.0, 0.0]
+        
+        eye_widths = []
+        thresholds = self.modulation.get_thresholds()
+        y_centers = (self._yedges[:-1] + self._yedges[1:]) / 2
+        
+        for threshold in thresholds:
+            # Find the eye region around this threshold
+            threshold_idx = np.argmin(np.abs(y_centers - threshold))
+            
+            # Get phase profile at this threshold level
+            phase_profile = self.eye_matrix[:, threshold_idx]
+            
+            if phase_profile.max() == 0:
+                eye_widths.append(0.0)
+                continue
+            
+            # Normalize
+            phase_profile_norm = phase_profile / phase_profile.max()
+            
+            # Find low-density region (eye opening)
+            density_threshold = 0.3
+            center_idx = len(phase_profile) // 2
+            
+            # Search left
+            left_idx = center_idx
+            for i in range(center_idx, -1, -1):
+                if phase_profile_norm[i] > density_threshold:
+                    left_idx = i
+                    break
+            else:
+                left_idx = 0
+            
+            # Search right
+            right_idx = center_idx
+            for i in range(center_idx, len(phase_profile_norm)):
+                if phase_profile_norm[i] > density_threshold:
+                    right_idx = i
+                    break
+            else:
+                right_idx = len(phase_profile_norm) - 1
+            
+            # Calculate width
+            x_centers = (self._xedges[:-1] + self._xedges[1:]) / 2
+            eye_width = x_centers[right_idx] - x_centers[left_idx]
+            eye_widths.append(max(0.0, eye_width))
+        
+        return eye_widths
+    
+    def _compute_eye_height_at_threshold(self, threshold: float,
+                                         y_centers: np.ndarray) -> float:
+        """Compute eye height at a specific decision threshold."""
+        if self.eye_matrix is None:
+            return 0.0
+        
+        # Find optimal phase
+        phase_density = np.sum(self.eye_matrix, axis=1)
+        optimal_phase_idx = np.argmax(phase_density)
+        
+        # Get amplitude profile at optimal phase
+        amplitude_profile = self.eye_matrix[optimal_phase_idx, :]
+        
+        if np.sum(amplitude_profile) == 0:
+            return 0.0
+        
+        # Find upper and lower eyes relative to threshold
+        upper_mask = y_centers > threshold
+        lower_mask = y_centers < threshold
+        
+        if not np.any(upper_mask) or not np.any(lower_mask):
+            return 0.0
+        
+        # Compute weighted centroids
+        try:
+            upper_centroid = np.average(y_centers[upper_mask],
+                                        weights=amplitude_profile[upper_mask])
+            lower_centroid = np.average(y_centers[lower_mask],
+                                        weights=amplitude_profile[lower_mask])
+            return float(upper_centroid - lower_centroid)
+        except ZeroDivisionError:
+            return 0.0
     
     def get_xedges(self) -> np.ndarray:
         """

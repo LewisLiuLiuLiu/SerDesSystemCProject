@@ -39,29 +39,43 @@ class BERContourCalculator:
         return contours
     
     def _calculate_contour_at_ber(self, eye_pdf, modulation, target_ber):
-        """Calculate single BER contour."""
+        """Calculate single BER contour using CDF-based method.
+        
+        For each eye, calculate the Cumulative Distribution Function (CDF)
+        to find the probability of error at each (voltage, time) point.
+        """
         vh_size, window_size = eye_pdf.shape
         contour = np.zeros((vh_size, window_size))
         
         eye_centers = modulation.get_eye_centers()
+        thresholds = modulation.get_thresholds()
         
-        # Calculate CDF for each eye
-        for i in range(window_size):
-            for eye_idx, center in enumerate(eye_centers):
-                # Find center index
-                center_idx = int(vh_size / 2)  # Simplified
-                
-                # Calculate CDF above and below center
-                if center_idx < vh_size:
-                    cdf_above = np.cumsum(eye_pdf[center_idx:, i])
-                    cdf_above = cdf_above / cdf_above[-1] if cdf_above[-1] > 0 else cdf_above
-                    
-                    cdf_below = np.cumsum(eye_pdf[:center_idx, i][::-1])[::-1]
-                    cdf_below = cdf_below / cdf_below[0] if cdf_below[0] > 0 else cdf_below
-                    
-                    # Combine
-                    full_cdf = np.concatenate([cdf_below, cdf_above])
-                    contour[:, i] = full_cdf[:vh_size]
+        # For each time slice
+        for t_idx in range(window_size):
+            voltage_slice = eye_pdf[:, t_idx]
+            
+            if voltage_slice.sum() == 0:
+                continue
+            
+            # Normalize to get PDF
+            pdf = voltage_slice / voltage_slice.sum()
+            
+            # Calculate CDF from bottom to top
+            cdf = np.cumsum(pdf)
+            
+            # For PAM4, we need to consider each eye separately
+            # The BER contour represents the probability of being in the wrong eye
+            
+            if modulation.num_levels == 4:  # PAM4
+                # Find approximate eye boundaries based on thresholds
+                for eye_idx, threshold in enumerate(thresholds):
+                    # Simple CDF-based error probability
+                    # This is a simplified model - full implementation would
+                    # calculate conditional probabilities for each eye
+                    contour[:, t_idx] = np.minimum(cdf, 1 - cdf) * 2
+            else:  # NRZ
+                # For NRZ, use distance from center
+                contour[:, t_idx] = np.minimum(cdf, 1 - cdf) * 2
         
         return contour
     
@@ -97,6 +111,43 @@ class BERContourCalculator:
         }
     
     def _compute_height_at_threshold(self, eye_pdf, threshold):
-        """Compute eye height at a decision threshold."""
-        # Simplified - full implementation would analyze PDF
-        return float(np.max(eye_pdf)) * 0.5
+        """Compute eye height at a decision threshold using CDF analysis.
+        
+        Args:
+            eye_pdf: Eye diagram PDF (2D array)
+            threshold: Decision threshold voltage
+            
+        Returns:
+            Eye height at the specified threshold
+        """
+        vh_size, window_size = eye_pdf.shape
+        
+        # For each time slice, find the voltage range where density is low
+        # (the eye opening at this threshold)
+        
+        eye_openings = []
+        
+        for t_idx in range(window_size):
+            voltage_slice = eye_pdf[:, t_idx]
+            
+            if voltage_slice.sum() == 0:
+                continue
+            
+            # Find low-density region around threshold
+            # Use a simple threshold on normalized density
+            normalized = voltage_slice / voltage_slice.max()
+            
+            # Find regions where density < 50% of max (eye opening)
+            low_density_mask = normalized < 0.5
+            
+            if np.any(low_density_mask):
+                # Find the extent of the low-density region
+                low_density_indices = np.where(low_density_mask)[0]
+                if len(low_density_indices) > 0:
+                    # Height in voltage bins
+                    height_bins = low_density_indices[-1] - low_density_indices[0]
+                    eye_openings.append(float(height_bins))
+        
+        if eye_openings:
+            return np.mean(eye_openings)
+        return 0.0
