@@ -4,6 +4,7 @@
 #include <sstream>
 #include <algorithm>
 #include <iostream>
+#include <complex>
 
 // Use nlohmann json for parsing (included in third_party)
 #include "../third_party/json.hpp"
@@ -451,8 +452,80 @@ double ChannelSParamTdf::process_impulse_fft(double x) {
 }
 
 // ============================================================================
-// FFT Implementation (Simple DFT for now, can be optimized with FFTW)
+// FFT Implementation - Cooley-Tukey algorithm (Batch 4)
 // ============================================================================
+
+// Helper: Bit reversal permutation
+static void bit_reverse_copy(const std::vector<std::complex<double>>& in,
+                              std::vector<std::complex<double>>& out) {
+    int N = static_cast<int>(in.size());
+    out.resize(N);
+    int logN = static_cast<int>(std::log2(N));
+    
+    for (int i = 0; i < N; ++i) {
+        int j = 0;
+        for (int k = 0; k < logN; ++k) {
+            j = (j << 1) | ((i >> k) & 1);
+        }
+        out[j] = in[i];
+    }
+}
+
+// Cooley-Tukey iterative FFT
+static void fft_cooley_tukey(std::vector<std::complex<double>>& data, bool inverse = false) {
+    int N = static_cast<int>(data.size());
+    if (N <= 1) return;
+    
+    // Check if N is power of 2
+    if ((N & (N - 1)) != 0) {
+        // Fall back to DFT for non-power-of-2
+        std::vector<std::complex<double>> result(N, 0.0);
+        for (int k = 0; k < N; ++k) {
+            for (int n = 0; n < N; ++n) {
+                double sign = inverse ? 1.0 : -1.0;
+                double angle = sign * 2.0 * M_PI * k * n / N;
+                result[k] += data[n] * std::complex<double>(std::cos(angle), std::sin(angle));
+            }
+        }
+        if (inverse) {
+            for (int k = 0; k < N; ++k) {
+                result[k] /= N;
+            }
+        }
+        data = result;
+        return;
+    }
+    
+    // Bit reversal permutation
+    std::vector<std::complex<double>> temp;
+    bit_reverse_copy(data, temp);
+    
+    // Iterative FFT
+    double sign = inverse ? 1.0 : -1.0;
+    for (int len = 2; len <= N; len <<= 1) {
+        double angle = sign * 2.0 * M_PI / len;
+        std::complex<double> wlen(std::cos(angle), std::sin(angle));
+        
+        for (int i = 0; i < N; i += len) {
+            std::complex<double> w(1.0);
+            for (int j = 0; j < len / 2; ++j) {
+                std::complex<double> u = temp[i + j];
+                std::complex<double> v = temp[i + j + len/2] * w;
+                temp[i + j] = u + v;
+                temp[i + j + len/2] = u - v;
+                w *= wlen;
+            }
+        }
+    }
+    
+    if (inverse) {
+        for (int i = 0; i < N; ++i) {
+            temp[i] /= N;
+        }
+    }
+    
+    data = temp;
+}
 
 void ChannelSParamTdf::fft_real(const std::vector<double>& in,
                                  std::vector<double>& out_real,
@@ -461,17 +534,17 @@ void ChannelSParamTdf::fft_real(const std::vector<double>& in,
     out_real.resize(N);
     out_imag.resize(N);
     
-    // Simple DFT (O(N^2) - should use FFT library for production)
-    for (int k = 0; k < N; ++k) {
-        double sum_real = 0.0;
-        double sum_imag = 0.0;
-        for (int n = 0; n < N; ++n) {
-            double angle = -2.0 * M_PI * k * n / N;
-            sum_real += in[n] * std::cos(angle);
-            sum_imag += in[n] * std::sin(angle);
-        }
-        out_real[k] = sum_real;
-        out_imag[k] = sum_imag;
+    // Use Cooley-Tukey FFT (O(N log N))
+    std::vector<std::complex<double>> data(N);
+    for (int i = 0; i < N; ++i) {
+        data[i] = std::complex<double>(in[i], 0.0);
+    }
+    
+    fft_cooley_tukey(data, false);
+    
+    for (int i = 0; i < N; ++i) {
+        out_real[i] = data[i].real();
+        out_imag[i] = data[i].imag();
     }
 }
 
@@ -481,14 +554,16 @@ void ChannelSParamTdf::ifft_real(const std::vector<double>& in_real,
     int N = static_cast<int>(in_real.size());
     out.resize(N);
     
-    // Simple IDFT (O(N^2) - should use FFT library for production)
-    for (int n = 0; n < N; ++n) {
-        double sum = 0.0;
-        for (int k = 0; k < N; ++k) {
-            double angle = 2.0 * M_PI * k * n / N;
-            sum += in_real[k] * std::cos(angle) - in_imag[k] * std::sin(angle);
-        }
-        out[n] = sum / N;
+    // Use Cooley-Tukey IFFT (O(N log N))
+    std::vector<std::complex<double>> data(N);
+    for (int i = 0; i < N; ++i) {
+        data[i] = std::complex<double>(in_real[i], in_imag[i]);
+    }
+    
+    fft_cooley_tukey(data, true);
+    
+    for (int i = 0; i < N; ++i) {
+        out[i] = data[i].real();
     }
 }
 
