@@ -212,6 +212,8 @@ class EyeAnalyzer:
                 'eye_height': metrics.get('eye_height', 0.0),
                 'eye_width': metrics.get('eye_width', 0.0),
                 'eye_area': metrics.get('eye_area', 0.0),
+                'optimal_sampling_phase': metrics.get('optimal_sampling_phase', 0.5),
+                'optimal_threshold': metrics.get('optimal_threshold', 0.0),
             },
             'jitter': {
                 'dj': jitter_dj,
@@ -277,6 +279,8 @@ class EyeAnalyzer:
                 'eye_height': metrics.get('eye_height', 0.0),
                 'eye_width': metrics.get('eye_width', 0.0),
                 'eye_area': metrics.get('eye_area', 0.0),
+                'optimal_sampling_phase': metrics.get('optimal_sampling_phase', 0.5),
+                'optimal_threshold': metrics.get('optimal_threshold', 0.0),
             },
             'jitter': {
                 'dj': metrics.get('dj_pp', 0.0) / self.ui if self.ui > 0 else 0.0,

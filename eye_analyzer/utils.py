@@ -51,7 +51,7 @@ def save_metrics_json(metrics: Dict[str, Any], filepath: str) -> None:
     """
     # Add metadata
     output_data = {
-        "version": "1.0.0",
+        "version": "2.0.0",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "metrics": metrics
     }
