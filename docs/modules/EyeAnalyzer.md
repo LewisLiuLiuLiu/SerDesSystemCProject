@@ -72,7 +72,7 @@ As a Python analysis component, EyeAnalyzer's "ports" correspond to function inp
 |----------------|------|---------------|-------------|
 | `hist2d_normalize` | boolean | true | Whether to normalize the 2D histogram to probability density (PDF) |
 | `psd_nperseg` | integer | 16384 | Number of samples per segment for PSD calculation (affects frequency resolution) |
-| `jitter_extract_method` | string | 'dual-dirac' | Jitter decomposition method: 'dual-dirac' (dual-Dirac model), 'tail-fit' (tail fitting) |
+| `jitter_method` | string | 'dual-dirac' | Jitter decomposition method: 'dual-dirac' (dual-Dirac model), 'tail-fit' (tail fitting) |
 | `linearity_threshold` | double | 0.1 | Amplitude threshold for linearity error calculation (analyzes only the eye diagram opening region) |
 
 #### Output Control Parameters
@@ -370,7 +370,7 @@ eye:
   amp_bins: 256
   measure_length: 5e-6
   target_ber: 1e-12
-  jitter_extract_method: dual-dirac
+  jitter_method: dual-dirac
   sampling: phase-lock
   ui: 2.5e-11
 ```
@@ -1749,7 +1749,7 @@ pip install -r requirements.txt
     "measure_length": 5e-6,
     "target_ber": 1e-15,
     "sampling": "phase-lock",
-    "jitter_extract_method": "dual-dirac",
+    "jitter_method": "dual-dirac",
     "psd_nperseg": 32768,
     "output_image_format": "svg",
     "output_image_dpi": 600,
@@ -1787,7 +1787,7 @@ eye_analyzer:
   measure_length: 2.5e-6
   target_ber: 1e-12
   sampling: phase-lock
-  jitter_extract_method: dual-dirac
+  jitter_method: dual-dirac
   output_image_format: png
   output_image_dpi: 300
   save_csv_data: false

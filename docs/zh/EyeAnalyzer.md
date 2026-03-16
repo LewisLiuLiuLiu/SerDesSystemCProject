@@ -70,7 +70,7 @@ EyeAnalyzer作为Python分析组件，其"端口"对应于函数输入/输出接
 |-------|------|--------|------|
 | `hist2d_normalize` | boolean | true | 二维直方图是否归一化为概率密度（PDF） |
 | `psd_nperseg` | integer | 16384 | PSD计算时的每段样本数（影响频率分辨率） |
-| `jitter_extract_method` | string | 'dual-dirac' | 抖动分解方法：'dual-dirac'（双狄拉克模型）、'tail-fit'（尾部拟合） |
+| `jitter_method` | string | 'dual-dirac' | 抖动分解方法：'dual-dirac'（双狄拉克模型）、'tail-fit'（尾部拟合） |
 | `linearity_threshold` | double | 0.1 | 线性度误差计算时的幅度阈值（仅分析眼图开口区域） |
 
 #### 输出控制参数
@@ -368,7 +368,7 @@ eye:
   amp_bins: 256
   measure_length: 5e-6
   target_ber: 1e-12
-  jitter_extract_method: dual-dirac
+  jitter_method: dual-dirac
   sampling: phase-lock
   ui: 2.5e-11
 ```
@@ -2091,7 +2091,7 @@ pip install -r requirements.txt
     "measure_length": 5e-6,
     "target_ber": 1e-15,
     "sampling": "phase-lock",
-    "jitter_extract_method": "dual-dirac",
+    "jitter_method": "dual-dirac",
     "psd_nperseg": 32768,
     "output_image_format": "svg",
     "output_image_dpi": 600,
@@ -2129,7 +2129,7 @@ eye_analyzer:
   measure_length: 2.5e-6
   target_ber: 1e-12
   sampling: phase-lock
-  jitter_extract_method: dual-dirac
+  jitter_method: dual-dirac
   output_image_format: png
   output_image_dpi: 300
   save_csv_data: false
@@ -2467,7 +2467,7 @@ plt.show()
     "advanced": {
       "hist2d_normalize": true,
       "psd_nperseg": 16384,
-      "jitter_extract_method": "dual-dirac",
+      "jitter_method": "dual-dirac",
       "linearity_threshold": 0.1
     },
     "output": {
@@ -2510,7 +2510,7 @@ config_advanced = {
     **config,
     'hist2d_normalize': True,
     'psd_nperseg': 16384,
-    'jitter_extract_method': 'dual-dirac',
+    'jitter_method': 'dual-dirac',
     'linearity_threshold': 0.1,
     'output_image_format': 'svg',
     'output_image_dpi': 300
