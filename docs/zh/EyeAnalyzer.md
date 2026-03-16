@@ -4,7 +4,7 @@
 
 **级别**：Python分析组件  
 **类名**：`EyeAnalyzer`  
-**当前版本**：v1.0 (2026-01-23)  
+**当前版本**：v2.0.0 (2026-01-23)  
 **状态**：生产就绪
 
 ---
@@ -31,7 +31,7 @@ EyeAnalyzer是SerDes链路仿真系统的Python后处理组件，基于统计信
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| v1.0 | 2026-01-23 | 初始版本，完整眼图分析与抖动分解功能 |
+| v2.0.0 | 2026-03-16 | 初始版本，完整眼图分析与抖动分解功能 |
 
 ## 2. 模块接口
 
@@ -967,7 +967,7 @@ EyeAnalyzer默认读取第2列，可通过`signal_column`参数指定。
 ```json
 {
   "metadata": {
-    "version": "1.0",
+    "version": "2.0.0",
     "timestamp": "2026-01-21T10:30:00Z",
     "dat_path": "results.dat",
     "ui": 2.5e-11,
@@ -1311,7 +1311,7 @@ EyeAnalyzer默认读取第2列，可通过`signal_column`参数指定。
 ```json
 {
   "metadata": {
-    "version": "1.0",
+    "version": "2.0.0",
     "timestamp": "2026-01-21T10:30:00Z",
     "dat_path": "results.dat",
     "ui": 2.5e-11,
@@ -2560,6 +2560,6 @@ python scripts/analyze_eye.py \
 
 ---
 
-**文档版本**：v1.0  
+**文档版本**：v2.0.0  
 **最后更新**：2026-01-23  
 **作者**：Yizhe Liu

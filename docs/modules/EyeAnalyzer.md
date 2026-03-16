@@ -6,7 +6,7 @@
 
 **Level**: Python Analysis Component  
 **Class Name**: `EyeAnalyzer`  
-**Current Version**: v1.0 (2026-01-23)  
+**Current Version**: v2.0.0 (2026-03-16)  
 **Status**: Production Ready
 
 ---
@@ -33,7 +33,7 @@ This module adopts a modular pipeline architecture, supports both file and memor
 
 | Version | Date | Major Changes |
 |---------|------|---------------|
-| v1.0 | 2026-01-23 | Initial version, complete eye diagram analysis and jitter decomposition functionality |
+| v2.0.0 | 2026-03-16 | Initial version, complete eye diagram analysis and jitter decomposition functionality |
 
 ## 2. Module Interface
 
@@ -969,7 +969,7 @@ EyeAnalyzer reads column 2 by default, can be specified via `signal_column` para
 ```json
 {
   "metadata": {
-    "version": "1.0",
+    "version": "2.0.0",
     "timestamp": "2026-01-21T10:30:00Z",
     "dat_path": "results.dat",
     "ui": 2.5e-11,
@@ -1827,6 +1827,6 @@ eye_analyzer:
 
 ---
 
-**Document Version**: v1.0  
+**Document Version**: v2.0.0  
 **Last Updated**: 2026-01-23  
 **Author**: Yizhe Liu
