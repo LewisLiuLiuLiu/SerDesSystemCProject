@@ -67,6 +67,10 @@ class EyeAnalyzer(
 | `samples_per_symbol` | int | 16 | Samples per symbol for statistical mode |
 | `ui_bins` | int | 128 | Number of UI bins for eye diagram |
 | `amp_bins` | int | 256 | Number of amplitude bins for eye diagram |
+| `n_ui_display` | float | 2.0 | Number of UI to display in eye diagram |
+| `center_eye` | bool | True | Center the eye pattern in display window |
+| `interpolate_factor` | int | 0 | Interpolation factor for upsampling (0=disabled) |
+| `jitter_method` | str | 'dual-dirac' | Jitter method: 'dual-dirac', 'tail-fit', 'auto' |
 
 **Example:**
 
