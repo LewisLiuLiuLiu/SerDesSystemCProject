@@ -18,6 +18,12 @@ cmake-build-*/
 IFLOW.md
 *.swp
 *.swo
+
+# AI workflow (local only)
+.kimi-dev/
+
+# Issue reports (local documentation)
+docs/channel_p1_batch3_issue.md
 *~
 
 # System files
