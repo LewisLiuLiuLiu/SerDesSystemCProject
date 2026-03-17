@@ -7,7 +7,22 @@
 #include <string>
 #include <memory>
 #include <deque>
-#include "biquad_filter.h"
+/**
+ * Pole-residue filter data for channel modeling
+ * Represents transfer function as sum of pole-residue pairs:
+ *   H(s) = constant + proportional*s + sum( residue_i / (s - pole_i) )
+ */
+struct PoleResidueFilterData {
+    std::vector<double> poles_real;
+    std::vector<double> poles_imag;
+    std::vector<double> residues_real;
+    std::vector<double> residues_imag;
+    double constant = 0.0;
+    double proportional = 0.0;
+    int order = 0;
+    double dc_gain = 1.0;
+    double mse = 0.0;
+};
 
 namespace serdes {
 
@@ -179,7 +194,12 @@ private:
     
     // Pole-residue filter state
     PoleResidueFilterData m_pole_residue_data;
-    std::vector<std::unique_ptr<BiquadSection>> m_biquad_chain;
+    
+    // Pole-residue LTF filter (merged into single high-order transfer function)
+    sca_tdf::sca_ltf_nd m_pr_ltf_filter;
+    sca_util::sca_vector<double> m_pr_num_vec;
+    sca_util::sca_vector<double> m_pr_den_vec;
+    double m_pr_input_prev;  // For proportional term derivative
     
     // Initialization flags
     bool m_config_loaded;

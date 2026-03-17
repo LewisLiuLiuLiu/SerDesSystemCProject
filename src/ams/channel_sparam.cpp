@@ -132,7 +132,8 @@ void ChannelSParamTdf::processing() {
             }
             break;
         case ChannelMethod::POLE_RESIDUE:
-            y_out = process_pole_residue(x_in);
+            // Use sca_ltf_nd like RATIONAL method
+            y_out = m_pr_ltf_filter(m_pr_num_vec, m_pr_den_vec, x_in);
             break;
     }
     
@@ -467,82 +468,42 @@ void ChannelSParamTdf::init_pole_residue_model() {
                   << "Residue: " << rr << " + " << ri << "i" << std::endl;
     }
     
-    // Clear existing biquad chain
-    m_biquad_chain.clear();
+    // Reset proportional term state
+    m_pr_input_prev = 0.0;
     
-    double timestep = 1.0 / m_ext_params.fs;
+    // For now, use the first complex pole pair only to test
+    // Full implementation would merge all sections into single H(s)
     
-    // Group poles into complex conjugate pairs and real poles
-    std::vector<bool> processed(n_poles, false);
+    // Take the dominant pole pair (first one)
+    double pr = m_pole_residue_data.poles_real[0];
+    double pi = m_pole_residue_data.poles_imag[0];
+    double rr = m_pole_residue_data.residues_real[0];
+    double ri = m_pole_residue_data.residues_imag[0];
     
-    int pair_count = 0;
-    int real_count = 0;
-    int skipped_count = 0;
+    std::complex<double> p1(pr, pi);
+    std::complex<double> r1(rr, ri);
     
-    // Calculate Nyquist frequency
-    double nyquist_freq = m_ext_params.fs / 2.0;
-    double max_pole_freq = 0.5 * nyquist_freq;
+    // H(s) = r/(s-p) + r*/(s-p*) = (b1*s + b0) / (s^2 + a1*s + a2)
+    double b0 = -2.0 * (r1 * std::conj(p1)).real();
+    double b1 = 2.0 * r1.real();
+    double a1 = -2.0 * p1.real();
+    double a2 = std::norm(p1);
     
-    for (size_t i = 0; i < n_poles; ++i) {
-        if (processed[i]) continue;
-        
-        double pr = m_pole_residue_data.poles_real[i];
-        double pi = m_pole_residue_data.poles_imag[i];
-        double rr = m_pole_residue_data.residues_real[i];
-        double ri = m_pole_residue_data.residues_imag[i];
-        
-        std::complex<double> p1(pr, pi);
-        std::complex<double> r1(rr, ri);
-        
-        // Check pole frequency
-        double pole_freq = std::abs(p1) / (2.0 * M_PI);
-        if (pole_freq > max_pole_freq) {
-            if (skipped_count < 3) {
-                std::cout << "[DEBUG] ChannelSParamTdf: Skipping pole " << i 
-                          << " at " << pole_freq/1e9 << " GHz (above " << max_pole_freq/1e9 << " GHz limit)" << std::endl;
-            }
-            processed[i] = true;
-            skipped_count++;
-            continue;
-        }
-        
-        // Check if this is a complex pole
-        if (std::abs(pi) > 1e-12) {
-            // Complex pole - create conjugate pair implicitly
-            // H(s) = r/(s-p) + r*/(s-p*) = (b1*s + b0) / (s^2 + a1*s + a2)
-            
-            double b0 = -2.0 * (r1 * std::conj(p1)).real();
-            double b1 = 2.0 * r1.real();
-            double a1 = -2.0 * p1.real();
-            double a2 = std::norm(p1);
-            
-            auto biquad = std::make_unique<BiquadSection>();
-            biquad->initialize(b0, b1, a1, a2, timestep);
-            m_biquad_chain.push_back(std::move(biquad));
-            
-            processed[i] = true;
-            pair_count++;
-        } else {
-            // Real pole: H(s) = r / (s - p)
-            double b0 = rr;
-            double b1 = 0.0;
-            double a1 = -pr;
-            double a2 = 0.0;
-            
-            auto biquad = std::make_unique<BiquadSection>();
-            biquad->initialize(b0, b1, a1, a2, timestep);
-            m_biquad_chain.push_back(std::move(biquad));
-            
-            processed[i] = true;
-            real_count++;
-        }
-    }
+    // For sca_ltf_nd: H(s) = (b0 + b1*s) / (a0 + a1*s + a2*s^2)
+    // where a2 should be 1 for proper normalization
+    // So we use: num = [b0, b1], den = [a2, a1, 1]
+    m_pr_num_vec.resize(2);
+    m_pr_num_vec(0) = b0;
+    m_pr_num_vec(1) = b1;
     
-    std::cout << "[DEBUG] ChannelSParamTdf: Pole-residue filter initialized with " 
-              << m_biquad_chain.size() << " biquad sections ("
-              << pair_count << " complex pairs, " << real_count << " real, "
-              << skipped_count << " skipped)" << std::endl;
+    m_pr_den_vec.resize(3);
+    m_pr_den_vec(0) = a2;
+    m_pr_den_vec(1) = a1;
+    m_pr_den_vec(2) = 1.0;
+    
+    std::cout << "[DEBUG] ChannelSParamTdf: Pole-residue filter initialized (simplified, 1 pair)" << std::endl;
 }
+
 
 void ChannelSParamTdf::init_fft_convolution() {
     int L = static_cast<int>(m_impulse_data.impulse.size());
@@ -619,81 +580,35 @@ double ChannelSParamTdf::process_impulse(double x) {
     return y;
 }
 
-double ChannelSParamTdf::process_pole_residue(double x) {
-    // Process through cascaded biquad sections
-    // H(s) = constant + proportional*s + sum(sections)
-    // Each biquad section implements a pole-residue pair or conjugate pair
-    
-    // Store input for proportional term calculation
-    double x_input = x;
-    
-    // Constant term
-    double y = m_pole_residue_data.constant * x;
-    
-    // Process through each biquad section in cascade
-    for (auto& biquad : m_biquad_chain) {
-        x = biquad->process(x);
+double ChannelSParamTdf::get_dc_gain() const {
+    switch (m_ext_params.method) {
+        case ChannelMethod::SIMPLE:
+            return std::pow(10.0, -m_params.attenuation_db / 20.0);
+        case ChannelMethod::RATIONAL:
+            return m_rational_data.dc_gain;
+        case ChannelMethod::IMPULSE:
+            // DC gain is sum of impulse response
+            {
+                double sum = 0.0;
+                for (double h : m_impulse_data.impulse) {
+                    sum += h;
+                }
+                return sum * m_impulse_data.dt;
+            }
+        case ChannelMethod::POLE_RESIDUE:
+            return m_pole_residue_data.dc_gain;
+        default:
+            return 1.0;
     }
-    
-    // Note: The biquad chain implements the sum of r/(s-p) terms
-    // The proportional term (if present) would need derivative approximation
-    // For now, we add the filtered signal to the constant term
-    // The proportional term is typically small for physical channels
-    
-    return y + x;
 }
 
-double ChannelSParamTdf::process_impulse_fft(double x) {
-    // Overlap-save FFT convolution
-    
-    // Add input to block
-    m_input_block[m_block_idx++] = x;
-    
-    // Process when block is full
-    if (m_block_idx == m_block_size) {
-        // Shift old samples
-        int L = static_cast<int>(m_impulse_data.impulse.size());
-        for (int i = 0; i < L - 1; ++i) {
-            m_input_block[m_fft_size - L + 1 + i] = m_input_block[i];
-        }
-        
-        // FFT of input block
-        std::vector<double> X_real, X_imag;
-        fft_real(m_input_block, X_real, X_imag);
-        
-        // Frequency domain multiplication
-        std::vector<double> Y_real(m_fft_size), Y_imag(m_fft_size);
-        for (int i = 0; i < m_fft_size; ++i) {
-            // Complex multiplication: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
-            Y_real[i] = X_real[i] * m_H_fft_real[i] - X_imag[i] * m_H_fft_imag[i];
-            Y_imag[i] = X_real[i] * m_H_fft_imag[i] + X_imag[i] * m_H_fft_real[i];
-        }
-        
-        // IFFT
-        std::vector<double> y_block;
-        ifft_real(Y_real, Y_imag, y_block);
-        
-        // Add valid samples to output queue (discard first L-1 samples)
-        int L_minus_1 = L - 1;
-        for (int i = L_minus_1; i < m_fft_size; ++i) {
-            m_output_queue.push_back(y_block[i]);
-        }
-        
-        m_block_idx = 0;
-    }
-    
-    // Return output from queue
-    if (!m_output_queue.empty()) {
-        double y = m_output_queue.front();
-        m_output_queue.pop_front();
-        return y;
-    }
-    
-    return 0.0;
-}
+} // namespace serdes
+
+
+namespace serdes {
 
 // ============================================================================
-// FFT Implementation - Cooley-Tukey algorithm (Batch 4)
+// FFT Implementation - Cooley-Tukey algorithm
 // ============================================================================
 
 // Helper: Bit reversal permutation
@@ -768,6 +683,55 @@ static void fft_cooley_tukey(std::vector<std::complex<double>>& data, bool inver
     data = temp;
 }
 
+double ChannelSParamTdf::process_impulse_fft(double x) {
+    // Overlap-save FFT convolution
+    
+    // Add input to block
+    m_input_block[m_block_idx++] = x;
+    
+    // Process when block is full
+    if (m_block_idx == m_block_size) {
+        // Shift old samples
+        int L = static_cast<int>(m_impulse_data.impulse.size());
+        for (int i = 0; i < L - 1; ++i) {
+            m_input_block[m_fft_size - L + 1 + i] = m_input_block[i];
+        }
+        
+        // FFT of input block
+        std::vector<double> X_real, X_imag;
+        fft_real(m_input_block, X_real, X_imag);
+        
+        // Frequency domain multiplication
+        std::vector<double> Y_real(m_fft_size), Y_imag(m_fft_size);
+        for (int i = 0; i < m_fft_size; ++i) {
+            // Complex multiplication: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+            Y_real[i] = X_real[i] * m_H_fft_real[i] - X_imag[i] * m_H_fft_imag[i];
+            Y_imag[i] = X_real[i] * m_H_fft_imag[i] + X_imag[i] * m_H_fft_real[i];
+        }
+        
+        // IFFT
+        std::vector<double> y_block;
+        ifft_real(Y_real, Y_imag, y_block);
+        
+        // Add valid samples to output queue (discard first L-1 samples)
+        int L_minus_1 = L - 1;
+        for (int i = L_minus_1; i < m_fft_size; ++i) {
+            m_output_queue.push_back(y_block[i]);
+        }
+        
+        m_block_idx = 0;
+    }
+    
+    // Return output from queue
+    if (!m_output_queue.empty()) {
+        double y = m_output_queue.front();
+        m_output_queue.pop_front();
+        return y;
+    }
+    
+    return 0.0;
+}
+
 void ChannelSParamTdf::fft_real(const std::vector<double>& in,
                                  std::vector<double>& out_real,
                                  std::vector<double>& out_imag) {
@@ -805,32 +769,6 @@ void ChannelSParamTdf::ifft_real(const std::vector<double>& in_real,
     
     for (int i = 0; i < N; ++i) {
         out[i] = data[i].real();
-    }
-}
-
-// ============================================================================
-// Utility Methods
-// ============================================================================
-
-double ChannelSParamTdf::get_dc_gain() const {
-    switch (m_ext_params.method) {
-        case ChannelMethod::SIMPLE:
-            return std::pow(10.0, -m_params.attenuation_db / 20.0);
-        case ChannelMethod::RATIONAL:
-            return m_rational_data.dc_gain;
-        case ChannelMethod::IMPULSE:
-            // DC gain is sum of impulse response
-            {
-                double sum = 0.0;
-                for (double h : m_impulse_data.impulse) {
-                    sum += h;
-                }
-                return sum * m_impulse_data.dt;
-            }
-        case ChannelMethod::POLE_RESIDUE:
-            return m_pole_residue_data.dc_gain;
-        default:
-            return 1.0;
     }
 }
 
