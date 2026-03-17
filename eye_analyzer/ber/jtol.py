@@ -129,7 +129,8 @@ class JitterTolerance:
         max_sj: float = 0.5,
         sj_tolerance: float = 0.005,
         noise_sigma: float = 0.0,
-        rj: float = 0.0
+        rj: float = 0.0,
+        scan_precision: float = 0.01
     ) -> Dict[str, Any]:
         """
         Measure JTol curve by sweeping SJ frequency and amplitude.
@@ -151,6 +152,10 @@ class JitterTolerance:
             sj_tolerance: Convergence tolerance for SJ search in UI (default: 0.005)
             noise_sigma: Gaussian noise sigma to apply during measurement
             rj: Random jitter to apply during measurement (in UI)
+            scan_precision: SJ amplitude search precision in UI (default: 0.01).
+                           This parameter controls the binary search convergence
+                           tolerance. Lower values provide more precise SJ limit
+                           measurements but require more iterations.
         
         Returns:
             Dictionary containing:
@@ -195,6 +200,9 @@ class JitterTolerance:
         
         logger.info(f"Starting JTol measurement for {len(sj_frequencies)} frequency points")
         
+        # Use scan_precision if provided, otherwise fall back to sj_tolerance
+        effective_tolerance = scan_precision if scan_precision != 0.01 else sj_tolerance
+        
         # Measure SJ limit at each frequency
         for i, freq in enumerate(sj_frequencies):
             logger.debug(f"Measuring SJ limit at frequency {freq/1e6:.2f} MHz")
@@ -205,7 +213,7 @@ class JitterTolerance:
                 pulse_response=pulse_response,
                 min_sj=min_sj,
                 max_sj=max_sj,
-                tolerance=sj_tolerance,
+                tolerance=effective_tolerance,
                 noise_sigma=noise_sigma,
                 rj=rj
             )
@@ -498,6 +506,203 @@ class JitterTolerance:
             logger.info(f"JTol plot saved to {output_file}")
         
         return fig, ax
+    
+    def analyze(
+        self,
+        pulse_responses: np.ndarray,
+        sj_frequencies: np.ndarray,
+        template: str = 'ieee_802_3ck',
+        scan_precision: float = 0.01,
+        target_ber: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Simplified interface for JTOL analysis.
+        
+        This is a convenience wrapper around measure_jtol() that provides
+        a simpler API for quick JTOL analysis without manually creating
+        a StatisticalScheme instance.
+        
+        Args:
+            pulse_responses: Channel pulse response array or list of arrays
+            sj_frequencies: Array of SJ modulation frequencies in Hz
+            template: Template name for comparison. Options:
+                     - 'ieee_802_3ck': IEEE 802.3ck (200G/400G Ethernet)
+                     - 'oif_cei_112g': OIF-CEI-112G
+                     - 'jedec_ddr5': JEDEC DDR5
+                     - 'pcie_gen6': PCIe Gen6
+            scan_precision: SJ amplitude search precision in UI (default: 0.01).
+                           Lower values provide more precise measurements.
+            target_ber: Target BER for analysis. If None, uses instance default.
+        
+        Returns:
+            Dictionary containing:
+            - frequencies: Array of test frequencies in Hz
+            - sj_limits: Array of measured SJ limits in UI
+            - template_limits: Array of template SJ limits in UI
+            - margins: Array of margins (measured - template) in UI
+            - pass_fail: List of Pass/Fail per frequency point
+            - overall_pass: True if all points pass, False otherwise
+            - modulation: Modulation format used
+            - target_ber: Target BER used
+        
+        Example:
+            >>> jtol = JitterTolerance(modulation='nrz')
+            >>> pulse = np.array([1.0, 0.5, 0.3, 0.2, 0.1])
+            >>> freqs = np.array([1e5, 1e6, 1e7])
+            >>> 
+            >>> results = jtol.analyze(
+            ...     pulse_responses=pulse,
+            ...     sj_frequencies=freqs,
+            ...     template='ieee_802_3ck',
+            ...     scan_precision=0.005
+            ... )
+            >>> print(f"Overall Pass: {results['overall_pass']}")
+        """
+        # Create StatisticalScheme instance internally
+        # Infer UI from pulse response (simplified approach)
+        pulse_responses = np.asarray(pulse_responses)
+        
+        # Default to 10 Gbps (UI = 100 ps) if we can't determine from pulse
+        if hasattr(pulse_responses, 'shape') and len(pulse_responses.shape) > 0:
+            # Use a reasonable default UI based on typical high-speed links
+            ui = 1e-10  # 100 ps UI = 10 Gbps
+        else:
+            ui = 1e-10
+        
+        # Create eye analyzer
+        eye_analyzer = StatisticalScheme(ui=ui, modulation=self.modulation)
+        
+        # Use target_ber from instance if not specified
+        effective_target_ber = target_ber if target_ber is not None else self.target_ber
+        
+        # Temporarily set target_ber if different
+        original_target_ber = self.target_ber
+        if effective_target_ber != self.target_ber:
+            self.target_ber = effective_target_ber
+        
+        try:
+            # Call measure_jtol with the scan_precision
+            result = self.measure_jtol(
+                eye_analyzer=eye_analyzer,
+                sj_frequencies=sj_frequencies,
+                template=template,
+                pulse_response=pulse_responses,
+                scan_precision=scan_precision
+            )
+        finally:
+            # Restore original target_ber
+            self.target_ber = original_target_ber
+        
+        return result
+    
+    def compare_templates(
+        self,
+        pulse_responses: np.ndarray,
+        sj_frequencies: np.ndarray,
+        templates: List[str],
+        scan_precision: float = 0.01,
+        target_ber: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Compare JTOL results against multiple templates.
+        
+        Runs JTOL analysis against multiple industry standard templates
+        and returns individual results for each template plus a comparison
+        summary.
+        
+        Args:
+            pulse_responses: Channel pulse response array
+            sj_frequencies: Array of SJ modulation frequencies in Hz
+            templates: List of template names to compare against
+            scan_precision: SJ amplitude search precision in UI (default: 0.01)
+            target_ber: Target BER for analysis. If None, uses instance default.
+        
+        Returns:
+            Dictionary containing results for each template plus comparison summary:
+            - <template_name>: Individual result dictionary for each template
+            - comparison_summary: Dictionary with:
+                - templates_tested: List of templates tested
+                - templates_passed: List of templates that passed
+                - templates_failed: List of templates that failed
+                - best_template: Template with highest minimum margin
+                - worst_margin_by_template: Dict of minimum margins per template
+        
+        Raises:
+            ValueError: If templates list is empty or contains invalid template names
+        
+        Example:
+            >>> jtol = JitterTolerance(modulation='nrz')
+            >>> pulse = np.array([1.0, 0.5, 0.3, 0.2, 0.1])
+            >>> freqs = np.array([1e5, 1e6, 1e7])
+            >>> 
+            >>> results = jtol.compare_templates(
+            ...     pulse_responses=pulse,
+            ...     sj_frequencies=freqs,
+            ...     templates=['ieee_802_3ck', 'oif_cei_112g']
+            ... )
+            >>> 
+            >>> # Check individual template results
+            >>> print(f"IEEE 802.3ck Pass: {results['ieee_802_3ck']['overall_pass']}")
+            >>> 
+            >>> # Check comparison summary
+            >>> summary = results['comparison_summary']
+            >>> print(f"Passed: {summary['templates_passed']}")
+            >>> print(f"Best Template: {summary['best_template']}")
+        """
+        if not templates:
+            raise ValueError("templates list cannot be empty")
+        
+        # Validate all template names
+        valid_templates = list(JTolTemplate.TEMPLATES.keys())
+        invalid_templates = [t for t in templates if t not in valid_templates]
+        if invalid_templates:
+            raise ValueError(
+                f"Unknown templates: {invalid_templates}. "
+                f"Valid templates: {valid_templates}"
+            )
+        
+        result = {}
+        template_results = {}
+        min_margins = {}
+        
+        # Run analysis for each template
+        for template in templates:
+            logger.info(f"Analyzing against template: {template}")
+            
+            template_result = self.analyze(
+                pulse_responses=pulse_responses,
+                sj_frequencies=sj_frequencies,
+                template=template,
+                scan_precision=scan_precision,
+                target_ber=target_ber
+            )
+            
+            result[template] = template_result
+            template_results[template] = template_result
+            min_margins[template] = float(np.min(template_result['margins']))
+        
+        # Build comparison summary
+        templates_passed = [t for t in templates if template_results[t]['overall_pass']]
+        templates_failed = [t for t in templates if not template_results[t]['overall_pass']]
+        
+        # Best template is the one with highest minimum margin
+        best_template = max(min_margins, key=min_margins.get) if min_margins else None
+        
+        result['comparison_summary'] = {
+            'templates_tested': list(templates),
+            'templates_passed': templates_passed,
+            'templates_failed': templates_failed,
+            'best_template': best_template,
+            'worst_margin_by_template': min_margins
+        }
+        
+        logger.info(
+            f"Template comparison complete: "
+            f"passed={len(templates_passed)}/{len(templates)}, "
+            f"best={best_template}"
+        )
+        
+        return result
     
     def generate_sj_frequency_sweep(
         self,

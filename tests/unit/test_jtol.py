@@ -268,5 +268,164 @@ class TestJitterToleranceIntegration:
         assert fig is not None
 
 
+class TestJitterToleranceNewFeatures:
+    """Tests for new JTOL features: analyze(), scan_precision, compare_templates()"""
+    
+    def setup_method(self):
+        self.jtol = JitterTolerance()
+        self.pulse_response = np.array([1.0, 0.5, 0.3, 0.2, 0.1])
+        self.sj_frequencies = np.array([1e5, 1e6, 1e7])
+    
+    def test_analyze_method_exists(self):
+        """Test analyze() method exists and returns correct structure."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        result = self.jtol.analyze(
+            pulse_responses=self.pulse_response,
+            sj_frequencies=self.sj_frequencies,
+            template='ieee_802_3ck',
+            scan_precision=0.01
+        )
+        
+        assert isinstance(result, dict)
+        assert 'frequencies' in result
+        assert 'sj_limits' in result
+        assert 'template_limits' in result
+        assert 'margins' in result
+        assert 'pass_fail' in result
+        assert 'overall_pass' in result
+        assert 'modulation' in result
+        assert 'target_ber' in result
+    
+    def test_analyze_method_returns_correct_frequency_count(self):
+        """Test analyze() returns correct number of frequency points."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        result = self.jtol.analyze(
+            pulse_responses=self.pulse_response,
+            sj_frequencies=self.sj_frequencies,
+            template='ieee_802_3ck',
+            scan_precision=0.01
+        )
+        
+        assert len(result['frequencies']) == len(self.sj_frequencies)
+        assert len(result['sj_limits']) == len(self.sj_frequencies)
+        assert len(result['template_limits']) == len(self.sj_frequencies)
+        assert len(result['margins']) == len(self.sj_frequencies)
+    
+    def test_analyze_method_supports_multiple_templates(self):
+        """Test analyze() works with different templates."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        for template in ['ieee_802_3ck', 'oif_cei_112g', 'jedec_ddr5', 'pcie_gen6']:
+            result = self.jtol.analyze(
+                pulse_responses=self.pulse_response,
+                sj_frequencies=self.sj_frequencies,
+                template=template,
+                scan_precision=0.01
+            )
+            assert 'overall_pass' in result
+            assert isinstance(result['overall_pass'], bool)
+    
+    def test_scan_precision_parameter_exists(self):
+        """Test measure_jtol() accepts scan_precision parameter."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        result = self.jtol.measure_jtol(
+            eye_analyzer=scheme,
+            sj_frequencies=self.sj_frequencies,
+            template='ieee_802_3ck',
+            pulse_response=self.pulse_response,
+            scan_precision=0.005  # Higher precision
+        )
+        
+        assert 'sj_limits' in result
+        assert len(result['sj_limits']) == len(self.sj_frequencies)
+    
+    def test_scan_precision_default_value(self):
+        """Test scan_precision has default value of 0.01."""
+        import inspect
+        sig = inspect.signature(self.jtol.measure_jtol)
+        
+        # Check that scan_precision parameter exists with default 0.01
+        if 'scan_precision' in sig.parameters:
+            param = sig.parameters['scan_precision']
+            assert param.default == 0.01, f"scan_precision default should be 0.01, got {param.default}"
+        else:
+            pytest.fail("measure_jtol() missing scan_precision parameter")
+    
+    def test_compare_templates_method_exists(self):
+        """Test compare_templates() method exists and returns correct structure."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        result = self.jtol.compare_templates(
+            pulse_responses=self.pulse_response,
+            sj_frequencies=self.sj_frequencies,
+            templates=['ieee_802_3ck', 'oif_cei_112g']
+        )
+        
+        assert isinstance(result, dict)
+        assert 'ieee_802_3ck' in result
+        assert 'oif_cei_112g' in result
+        assert 'comparison_summary' in result
+    
+    def test_compare_templates_returns_individual_results(self):
+        """Test compare_templates() returns individual results for each template."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        templates = ['ieee_802_3ck', 'pcie_gen6']
+        result = self.jtol.compare_templates(
+            pulse_responses=self.pulse_response,
+            sj_frequencies=self.sj_frequencies,
+            templates=templates
+        )
+        
+        for template in templates:
+            assert template in result
+            template_result = result[template]
+            assert 'frequencies' in template_result
+            assert 'sj_limits' in template_result
+            assert 'template_limits' in template_result
+            assert 'margins' in template_result
+            assert 'pass_fail' in template_result
+            assert 'overall_pass' in template_result
+    
+    def test_compare_templates_summary(self):
+        """Test compare_templates() provides comparison summary."""
+        scheme = StatisticalScheme(ui=1e-9, modulation='nrz')
+        
+        result = self.jtol.compare_templates(
+            pulse_responses=self.pulse_response,
+            sj_frequencies=self.sj_frequencies,
+            templates=['ieee_802_3ck', 'oif_cei_112g']
+        )
+        
+        assert 'comparison_summary' in result
+        summary = result['comparison_summary']
+        assert 'templates_tested' in summary
+        assert 'templates_passed' in summary
+        assert 'templates_failed' in summary
+        assert 'best_template' in summary
+        assert 'worst_margin_by_template' in summary
+    
+    def test_compare_templates_empty_list_raises_error(self):
+        """Test compare_templates() raises error with empty templates list."""
+        with pytest.raises(ValueError, match="templates"):
+            self.jtol.compare_templates(
+                pulse_responses=self.pulse_response,
+                sj_frequencies=self.sj_frequencies,
+                templates=[]
+            )
+    
+    def test_compare_templates_invalid_template_raises_error(self):
+        """Test compare_templates() raises error with invalid template name."""
+        with pytest.raises(ValueError, match="template"):
+            self.jtol.compare_templates(
+                pulse_responses=self.pulse_response,
+                sj_frequencies=self.sj_frequencies,
+                templates=['ieee_802_3ck', 'invalid_template']
+            )
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
