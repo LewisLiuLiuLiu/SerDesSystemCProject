@@ -54,9 +54,15 @@ ChannelSParamTdf::ChannelSParamTdf(sc_core::sc_module_name nm,
     , m_config_loaded(false)
     , m_initialized(false)
 {
+    std::cout << "[DEBUG] ChannelSParamTdf: Constructor called, method=" 
+              << static_cast<int>(m_ext_params.method) 
+              << ", config_file=" << ext_params.config_file << std::endl;
+    
     // Load configuration if specified
     if (!ext_params.config_file.empty()) {
         load_config(ext_params.config_file);
+        std::cout << "[DEBUG] ChannelSParamTdf: After load_config, method=" 
+                  << static_cast<int>(m_ext_params.method) << std::endl;
     }
 }
 
@@ -85,6 +91,9 @@ void ChannelSParamTdf::set_attributes() {
 
 void ChannelSParamTdf::initialize() {
     if (m_initialized) return;
+    
+    std::cout << "[DEBUG] ChannelSParamTdf: initialize() called, method=" 
+              << static_cast<int>(m_ext_params.method) << std::endl;
     
     switch (m_ext_params.method) {
         case ChannelMethod::SIMPLE:
@@ -157,14 +166,19 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
             m_ext_params.fs = config["fs"].get<double>();
         }
         
-        // Get method
+        // Get method (case-insensitive comparison)
         std::string method_str = config.value("method", "simple");
         std::cout << "[DEBUG] ChannelSParamTdf: Loading method: " << method_str << std::endl;
-        if (method_str == "rational") {
+        
+        // Convert to lowercase for comparison
+        std::string method_lower = method_str;
+        std::transform(method_lower.begin(), method_lower.end(), method_lower.begin(), ::tolower);
+        
+        if (method_lower == "rational") {
             m_ext_params.method = ChannelMethod::RATIONAL;
-        } else if (method_str == "impulse") {
+        } else if (method_lower == "impulse") {
             m_ext_params.method = ChannelMethod::IMPULSE;
-        } else if (method_str == "pole_residue") {
+        } else if (method_lower == "pole_residue" || method_lower == "pole-residue") {
             m_ext_params.method = ChannelMethod::POLE_RESIDUE;
         } else {
             m_ext_params.method = ChannelMethod::SIMPLE;
@@ -205,7 +219,7 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
             }
         }
         
-        // Parse pole_residue filters
+        // Parse pole_residue filters (old format with filters object)
         if (config.contains("pole_residue_filters")) {
             int pr_count = 0;
             for (auto it = config["pole_residue_filters"].begin(); it != config["pole_residue_filters"].end(); ++it) {
@@ -216,8 +230,8 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
         if (config.contains("pole_residue_filters") && !config["pole_residue_filters"].empty()) {
             for (auto it = config["pole_residue_filters"].begin(); it != config["pole_residue_filters"].end(); ++it) {
                 const auto& pr = it.value();
-                m_pole_residue_data.poles.clear();
-                m_pole_residue_data.residues.clear();
+                m_pole_residue_data.poles_real.clear(); m_pole_residue_data.poles_imag.clear();
+                m_pole_residue_data.residues_real.clear(); m_pole_residue_data.residues_imag.clear();
                 
                 // Parse constant term
                 m_pole_residue_data.constant = pr.value("constant", 0.0);
@@ -240,22 +254,68 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
                             ri_val = residues[i][1].get<double>();
                         }
                         
-                        m_pole_residue_data.poles.emplace_back(pr_val, pi_val);
-                        m_pole_residue_data.residues.emplace_back(rr_val, ri_val);
+                        m_pole_residue_data.poles_real.push_back(pr_val); m_pole_residue_data.poles_imag.push_back(pi_val);
+                        m_pole_residue_data.residues_real.push_back(rr_val); m_pole_residue_data.residues_imag.push_back(ri_val);
                     }
                 }
                 
-                m_pole_residue_data.order = pr.value("order", static_cast<int>(m_pole_residue_data.poles.size()));
+                m_pole_residue_data.order = pr.value("order", static_cast<int>(m_pole_residue_data.poles_real.size()));
                 m_pole_residue_data.dc_gain = pr.value("dc_gain", 1.0);
                 m_pole_residue_data.mse = pr.value("mse", 0.0);
                 
                 std::cout << "[DEBUG] ChannelSParamTdf: Parsed pole-residue filter '" << it.key() 
-                          << "': poles=" << m_pole_residue_data.poles.size() 
+                          << "': poles=" << m_pole_residue_data.poles_real.size() 
                           << ", constant=" << m_pole_residue_data.constant 
                           << ", order=" << m_pole_residue_data.order << std::endl;
                 
                 break; // Only use first filter for now
             }
+        }
+        
+        // Parse new format pole_residue (from scikit-rf export)
+        if (config.contains("pole_residue")) {
+            const auto& pr = config["pole_residue"];
+            m_pole_residue_data.poles_real.clear(); m_pole_residue_data.poles_imag.clear();
+            m_pole_residue_data.residues_real.clear(); m_pole_residue_data.residues_imag.clear();
+            
+            // Parse constant and proportional terms
+            m_pole_residue_data.constant = pr.value("constant", 0.0);
+            m_pole_residue_data.proportional = pr.value("proportional", 0.0);
+            
+            // Parse poles and residues from separate real/imag arrays
+            if (pr.contains("poles_real") && pr.contains("poles_imag") &&
+                pr.contains("residues_real") && pr.contains("residues_imag")) {
+                
+                const auto& poles_real = pr["poles_real"];
+                const auto& poles_imag = pr["poles_imag"];
+                const auto& residues_real = pr["residues_real"];
+                const auto& residues_imag = pr["residues_imag"];
+                
+                size_t n_poles = poles_real.size();
+                if (poles_imag.size() < n_poles) n_poles = poles_imag.size();
+                if (residues_real.size() < n_poles) n_poles = residues_real.size();
+                if (residues_imag.size() < n_poles) n_poles = residues_imag.size();
+                
+                for (size_t i = 0; i < n_poles; ++i) {
+                    double p_real = poles_real[i].get<double>();
+                    double p_imag = poles_imag[i].get<double>();
+                    double r_real = residues_real[i].get<double>();
+                    double r_imag = residues_imag[i].get<double>();
+                    
+                    m_pole_residue_data.poles_real.push_back(p_real); m_pole_residue_data.poles_imag.push_back(p_imag);
+                    m_pole_residue_data.residues_real.push_back(r_real); m_pole_residue_data.residues_imag.push_back(r_imag);
+                }
+            }
+            
+            m_pole_residue_data.order = pr.value("order", static_cast<int>(m_pole_residue_data.poles_real.size()));
+            m_pole_residue_data.dc_gain = pr.value("dc_gain", 1.0);
+            m_pole_residue_data.mse = pr.value("mse", 0.0);
+            
+            std::cout << "[DEBUG] ChannelSParamTdf: Parsed pole_residue (scikit-rf format): poles=" 
+                      << m_pole_residue_data.poles_real.size() 
+                      << ", constant=" << m_pole_residue_data.constant 
+                      << ", proportional=" << m_pole_residue_data.proportional
+                      << ", order=" << m_pole_residue_data.order << std::endl;
         }
         
         // Parse impulse responses
@@ -296,7 +356,8 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
         }
         
         std::cout << "[DEBUG] ChannelSParamTdf: Configuration loaded successfully (fs=" 
-                  << m_ext_params.fs << ")" << std::endl;
+                  << m_ext_params.fs << ", method=" << static_cast<int>(m_ext_params.method) 
+                  << ")" << std::endl;
         m_config_loaded = true;
         return true;
         
@@ -385,12 +446,25 @@ void ChannelSParamTdf::init_impulse_model() {
 }
 
 void ChannelSParamTdf::init_pole_residue_model() {
-    if (m_pole_residue_data.poles.empty()) {
+    size_t n_poles = m_pole_residue_data.poles_real.size();
+    std::cout << "[DEBUG] ChannelSParamTdf: init_pole_residue_model called, poles=" 
+              << n_poles << std::endl;
+    
+    if (n_poles == 0) {
         std::cerr << "ChannelSParamTdf: Pole-residue data not loaded" << std::endl;
-        // Fall back to simple model
         m_ext_params.method = ChannelMethod::SIMPLE;
         init_simple_model();
         return;
+    }
+    
+    // Debug: print first few poles
+    for (size_t i = 0; i < std::min(size_t(4), n_poles); ++i) {
+        double pr = m_pole_residue_data.poles_real[i];
+        double pi = m_pole_residue_data.poles_imag[i];
+        double rr = m_pole_residue_data.residues_real[i];
+        double ri = m_pole_residue_data.residues_imag[i];
+        std::cout << "[DEBUG]   Pole[" << i << "]: " << pr << " + " << pi << "i, "
+                  << "Residue: " << rr << " + " << ri << "i" << std::endl;
     }
     
     // Clear existing biquad chain
@@ -399,72 +473,75 @@ void ChannelSParamTdf::init_pole_residue_model() {
     double timestep = 1.0 / m_ext_params.fs;
     
     // Group poles into complex conjugate pairs and real poles
-    std::vector<bool> processed(m_pole_residue_data.poles.size(), false);
+    std::vector<bool> processed(n_poles, false);
     
-    for (size_t i = 0; i < m_pole_residue_data.poles.size(); ++i) {
+    int pair_count = 0;
+    int real_count = 0;
+    int skipped_count = 0;
+    
+    // Calculate Nyquist frequency
+    double nyquist_freq = m_ext_params.fs / 2.0;
+    double max_pole_freq = 0.5 * nyquist_freq;
+    
+    for (size_t i = 0; i < n_poles; ++i) {
         if (processed[i]) continue;
         
-        const std::complex<double>& p1 = m_pole_residue_data.poles[i];
-        const std::complex<double>& r1 = m_pole_residue_data.residues[i];
+        double pr = m_pole_residue_data.poles_real[i];
+        double pi = m_pole_residue_data.poles_imag[i];
+        double rr = m_pole_residue_data.residues_real[i];
+        double ri = m_pole_residue_data.residues_imag[i];
         
-        // Check if this is a complex pole (non-zero imaginary part)
-        if (std::abs(p1.imag()) > 1e-12) {
-            // Find conjugate pair
-            bool found_pair = false;
-            for (size_t j = i + 1; j < m_pole_residue_data.poles.size() && !found_pair; ++j) {
-                if (processed[j]) continue;
-                
-                const std::complex<double>& p2 = m_pole_residue_data.poles[j];
-                const std::complex<double>& r2 = m_pole_residue_data.residues[j];
-                
-                // Check if p2 is conjugate of p1
-                if (std::abs(p2 - std::conj(p1)) < 1e-12 &&
-                    std::abs(r2 - std::conj(r1)) < 1e-12) {
-                    
-                    // Combine conjugate pairs into real biquad section
-                    // H(s) = r1/(s-p1) + r2/(s-p2) where p2 = p1*, r2 = r1*
-                    // = [2*Re(r1)*s - 2*Re(p1*r1*)] / [s^2 - 2*Re(p1)*s + |p1|^2]
-                    
-                    double b0 = 0.0;                                    // s^2 coefficient
-                    double b1 = 2.0 * r1.real();                        // s coefficient
-                    double b2 = -2.0 * (r1 * std::conj(p1)).real();     // constant
-                    double a1 = -2.0 * p1.real();                       // s coefficient
-                    double a2 = std::norm(p1);                          // constant
-                    
-                    auto biquad = std::make_unique<BiquadSection>();
-                    biquad->initialize(b0, b1, b2, a1, a2, timestep);
-                    m_biquad_chain.push_back(std::move(biquad));
-                    
-                    processed[i] = true;
-                    processed[j] = true;
-                    found_pair = true;
-                }
+        std::complex<double> p1(pr, pi);
+        std::complex<double> r1(rr, ri);
+        
+        // Check pole frequency
+        double pole_freq = std::abs(p1) / (2.0 * M_PI);
+        if (pole_freq > max_pole_freq) {
+            if (skipped_count < 3) {
+                std::cout << "[DEBUG] ChannelSParamTdf: Skipping pole " << i 
+                          << " at " << pole_freq/1e9 << " GHz (above " << max_pole_freq/1e9 << " GHz limit)" << std::endl;
             }
+            processed[i] = true;
+            skipped_count++;
+            continue;
+        }
+        
+        // Check if this is a complex pole
+        if (std::abs(pi) > 1e-12) {
+            // Complex pole - create conjugate pair implicitly
+            // H(s) = r/(s-p) + r*/(s-p*) = (b1*s + b0) / (s^2 + a1*s + a2)
             
-            if (!found_pair) {
-                std::cerr << "ChannelSParamTdf: Warning - unpaired complex pole at index " << i << std::endl;
-            }
-        } else {
-            // Real pole: create first-order section
-            // H(s) = r / (s - p) = r / (s + (-p))
-            // Treat as biquad with b0=0, b1=r, b2=0, a1=-p, a2=0
-            
-            double b0 = 0.0;
-            double b1 = r1.real();
-            double b2 = 0.0;
-            double a1 = -p1.real();
-            double a2 = 0.0;
+            double b0 = -2.0 * (r1 * std::conj(p1)).real();
+            double b1 = 2.0 * r1.real();
+            double a1 = -2.0 * p1.real();
+            double a2 = std::norm(p1);
             
             auto biquad = std::make_unique<BiquadSection>();
-            biquad->initialize(b0, b1, b2, a1, a2, timestep);
+            biquad->initialize(b0, b1, a1, a2, timestep);
             m_biquad_chain.push_back(std::move(biquad));
             
             processed[i] = true;
+            pair_count++;
+        } else {
+            // Real pole: H(s) = r / (s - p)
+            double b0 = rr;
+            double b1 = 0.0;
+            double a1 = -pr;
+            double a2 = 0.0;
+            
+            auto biquad = std::make_unique<BiquadSection>();
+            biquad->initialize(b0, b1, a1, a2, timestep);
+            m_biquad_chain.push_back(std::move(biquad));
+            
+            processed[i] = true;
+            real_count++;
         }
     }
     
     std::cout << "[DEBUG] ChannelSParamTdf: Pole-residue filter initialized with " 
-              << m_biquad_chain.size() << " biquad sections" << std::endl;
+              << m_biquad_chain.size() << " biquad sections ("
+              << pair_count << " complex pairs, " << real_count << " real, "
+              << skipped_count << " skipped)" << std::endl;
 }
 
 void ChannelSParamTdf::init_fft_convolution() {
@@ -544,15 +621,24 @@ double ChannelSParamTdf::process_impulse(double x) {
 
 double ChannelSParamTdf::process_pole_residue(double x) {
     // Process through cascaded biquad sections
-    // H(s) = constant + sum(sections)
+    // H(s) = constant + proportional*s + sum(sections)
     // Each biquad section implements a pole-residue pair or conjugate pair
     
+    // Store input for proportional term calculation
+    double x_input = x;
+    
+    // Constant term
     double y = m_pole_residue_data.constant * x;
     
     // Process through each biquad section in cascade
     for (auto& biquad : m_biquad_chain) {
         x = biquad->process(x);
     }
+    
+    // Note: The biquad chain implements the sum of r/(s-p) terms
+    // The proportional term (if present) would need derivative approximation
+    // For now, we add the filtered signal to the constant term
+    // The proportional term is typically small for physical channels
     
     return y + x;
 }

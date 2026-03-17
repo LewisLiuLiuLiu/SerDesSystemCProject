@@ -1,0 +1,22 @@
+{
+  "batch": "Batch 3: RATIONAL Method Validation",
+  "metrics": {
+    "magnitude_rmse_db": 27.268128179192082,
+    "magnitude_max_error_db": 47.277705199914344,
+    "correlation": 0.041374087029733726,
+    "frequency_range_hz": [
+      50000000.0,
+      15000000000.0
+    ]
+  },
+  "thresholds": {
+    "magnitude_rmse_db": 3.0,
+    "magnitude_max_error_db": 6.0,
+    "correlation": 0.95
+  },
+  "pass": {
+    "magnitude_rmse": false,
+    "magnitude_max_error": false,
+    "correlation": false
+  }
+}

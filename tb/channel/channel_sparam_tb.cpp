@@ -191,7 +191,6 @@ SC_MODULE(ChannelSparamTestbench) {
         if (argc > 1) {
             m_config_file = argv[1];
             m_use_sparam_config = true;
-            m_output_prefix = "channel_sparam_config";
         }
         
         if (argc > 2) {
@@ -202,8 +201,26 @@ SC_MODULE(ChannelSparamTestbench) {
         // Configure wave generation
         configure_wavegen();
         
-        // Configure channel
+        // Configure channel (this detects method from config)
         configure_channel();
+        
+        // Set output prefix based on method
+        if (m_use_sparam_config) {
+            switch (m_ext_params.method) {
+                case ChannelMethod::POLE_RESIDUE:
+                    m_output_prefix = "channel_pr";
+                    break;
+                case ChannelMethod::IMPULSE:
+                    m_output_prefix = "channel_impulse";
+                    break;
+                case ChannelMethod::RATIONAL:
+                    m_output_prefix = "channel_rational";
+                    break;
+                default:
+                    m_output_prefix = "channel_sparam_config";
+                    break;
+            }
+        }
         
         std::cout << "Testbench Configuration:" << std::endl;
         std::cout << "  Sample rate: " << m_sample_rate / 1e9 << " GHz" << std::endl;
@@ -211,6 +228,20 @@ SC_MODULE(ChannelSparamTestbench) {
         std::cout << "  Data rate: " << 1.0 / m_ui / 1e9 << " Gbps" << std::endl;
         std::cout << "  Duration: " << m_sim_duration * 1e9 << " ns" << std::endl;
         std::cout << "  Config file: " << (m_use_sparam_config ? m_config_file : "none (simple model)") << std::endl;
+        std::cout << "  Method: " << get_method_string(m_ext_params.method) << std::endl;
+    }
+    
+    /**
+     * @brief Get string representation of channel method
+     */
+    const char* get_method_string(ChannelMethod method) {
+        switch (method) {
+            case ChannelMethod::SIMPLE: return "SIMPLE";
+            case ChannelMethod::RATIONAL: return "RATIONAL";
+            case ChannelMethod::IMPULSE: return "IMPULSE";
+            case ChannelMethod::POLE_RESIDUE: return "POLE_RESIDUE";
+            default: return "UNKNOWN";
+        }
     }
     
     void configure_wavegen() {
@@ -233,12 +264,54 @@ SC_MODULE(ChannelSparamTestbench) {
         
         // Extended parameters for S-parameter modeling
         if (m_use_sparam_config) {
-            m_ext_params.method = ChannelMethod::RATIONAL;  // Use rational fitting
+            // Detect method from config file content
+            m_ext_params.method = detect_method_from_config(m_config_file);
             m_ext_params.config_file = m_config_file;
             m_ext_params.fs = m_sample_rate;
         } else {
             m_ext_params.method = ChannelMethod::SIMPLE;    // Simple low-pass model
         }
+    }
+    
+    /**
+     * @brief Detect channel method from config file
+     */
+    ChannelMethod detect_method_from_config(const std::string& config_file) {
+        // Read config file to detect method
+        std::ifstream file(config_file);
+        if (!file.is_open()) {
+            std::cerr << "Warning: Cannot open config file " << config_file 
+                      << ", using RATIONAL method" << std::endl;
+            return ChannelMethod::RATIONAL;
+        }
+        
+        std::string content((std::istreambuf_iterator<char>(file)),
+                            std::istreambuf_iterator<char>());
+        file.close();
+        
+        // Check for method field
+        if (content.find("\"method\": \"POLE_RESIDUE\"") != std::string::npos ||
+            content.find("\"method\":\"POLE_RESIDUE\"") != std::string::npos) {
+            std::cout << "  Detected POLE_RESIDUE method from config" << std::endl;
+            return ChannelMethod::POLE_RESIDUE;
+        } else if (content.find("\"method\": \"IMPULSE\"") != std::string::npos ||
+                   content.find("\"method\":\"IMPULSE\"") != std::string::npos) {
+            std::cout << "  Detected IMPULSE method from config" << std::endl;
+            return ChannelMethod::IMPULSE;
+        } else if (content.find("\"pole_residue\"") != std::string::npos) {
+            std::cout << "  Detected POLE_RESIDUE method from pole_residue field" << std::endl;
+            return ChannelMethod::POLE_RESIDUE;
+        } else if (content.find("\"impulse_response\"") != std::string::npos) {
+            std::cout << "  Detected IMPULSE method from impulse_response field" << std::endl;
+            return ChannelMethod::IMPULSE;
+        } else if (content.find("\"rational\"") != std::string::npos ||
+                   content.find("\"numerator\"") != std::string::npos) {
+            std::cout << "  Detected RATIONAL method from rational/numerator field" << std::endl;
+            return ChannelMethod::RATIONAL;
+        }
+        
+        std::cout << "  Using default RATIONAL method" << std::endl;
+        return ChannelMethod::RATIONAL;
     }
     
     // ========================================================================
@@ -326,7 +399,7 @@ SC_MODULE(ChannelSparamTestbench) {
         file << "  \"waveform_file\": \"" << m_output_prefix << "_waveform.csv\",\n";
         file << "  \"output_dat_file\": \"" << m_output_prefix << "_output.dat\",\n";
         file << "  \"config_file\": \"" << (m_use_sparam_config ? m_config_file : "") << "\",\n";
-        file << "  \"channel_model\": \"" << (m_use_sparam_config ? "sparam_rational" : "simple_lpf") << "\",\n";
+        file << "  \"channel_model\": \"" << (m_use_sparam_config ? get_method_string(m_ext_params.method) : "simple_lpf") << "\",\n";
         
         // Channel parameters
         file << "  \"channel\": {\n";

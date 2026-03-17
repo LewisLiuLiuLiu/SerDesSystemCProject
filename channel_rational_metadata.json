@@ -1,0 +1,16 @@
+{
+  "testbench": "channel_sparam",
+  "sample_rate_hz": 100000000000.000000000000,
+  "ui_s": 0.000000000100,
+  "data_rate_bps": 10000000000.000000000000,
+  "simulation_duration_s": 0.000000500000,
+  "num_samples": 50000,
+  "waveform_file": "channel_rational_waveform.csv",
+  "output_dat_file": "channel_rational_output.dat",
+  "config_file": "test_config_rational_order12.json",
+  "channel_model": "RATIONAL",
+  "channel": {
+    "attenuation_db": 6.000000000000,
+    "bandwidth_hz": 15000000000.000000000000
+  }
+}
