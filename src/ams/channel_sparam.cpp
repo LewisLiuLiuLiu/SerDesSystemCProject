@@ -180,6 +180,7 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
         // Convert to lowercase for comparison
         std::string method_lower = method_str;
         std::transform(method_lower.begin(), method_lower.end(), method_lower.begin(), ::tolower);
+        std::cout << "[DEBUG] ChannelSParamTdf: method_lower: " << method_lower << std::endl;
         
         if (method_lower == "rational") {
             m_ext_params.method = ChannelMethod::RATIONAL;

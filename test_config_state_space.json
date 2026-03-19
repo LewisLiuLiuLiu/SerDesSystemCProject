@@ -1,7 +1,7 @@
 {
   "version": "2.1-vf",
   "method": "state_space",
-  "fs": 80000000000.0,
+  "fs": 100000000000.0,
   "state_space": {
     "A": [
       [

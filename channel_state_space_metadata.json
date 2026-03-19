@@ -1,0 +1,16 @@
+{
+  "testbench": "channel_sparam",
+  "sample_rate_hz": 100000000000.000000000000,
+  "ui_s": 0.000000000100,
+  "data_rate_bps": 10000000000.000000000000,
+  "simulation_duration_s": 0.000000100000,
+  "num_samples": 10000,
+  "waveform_file": "channel_state_space_waveform.csv",
+  "output_dat_file": "channel_state_space_output.dat",
+  "config_file": "test_config_state_space.json",
+  "channel_model": "STATE_SPACE",
+  "channel": {
+    "attenuation_db": 6.000000000000,
+    "bandwidth_hz": 15000000000.000000000000
+  }
+}
