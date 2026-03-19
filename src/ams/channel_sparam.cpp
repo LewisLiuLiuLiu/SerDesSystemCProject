@@ -108,6 +108,9 @@ void ChannelSParamTdf::initialize() {
         case ChannelMethod::POLE_RESIDUE:
             init_pole_residue_model();
             break;
+        case ChannelMethod::STATE_SPACE:
+            init_state_space_model();
+            break;
     }
     
     m_initialized = true;
@@ -132,8 +135,11 @@ void ChannelSParamTdf::processing() {
             }
             break;
         case ChannelMethod::POLE_RESIDUE:
-            // Use sca_ltf_nd like RATIONAL method
-            y_out = m_pr_ltf_filter(m_pr_num_vec, m_pr_den_vec, x_in);
+            // Use custom state space implementation (numerical integration)
+            y_out = process_pole_residue_ss(x_in);
+            break;
+        case ChannelMethod::STATE_SPACE:
+            y_out = process_state_space(x_in);
             break;
     }
     
@@ -181,6 +187,8 @@ bool ChannelSParamTdf::parse_json_config(const std::string& json_content) {
             m_ext_params.method = ChannelMethod::IMPULSE;
         } else if (method_lower == "pole_residue" || method_lower == "pole-residue") {
             m_ext_params.method = ChannelMethod::POLE_RESIDUE;
+        } else if (method_lower == "state_space" || method_lower == "state-space") {
+            m_ext_params.method = ChannelMethod::STATE_SPACE;
         } else {
             m_ext_params.method = ChannelMethod::SIMPLE;
         }
@@ -446,6 +454,129 @@ void ChannelSParamTdf::init_impulse_model() {
     }
 }
 
+void ChannelSParamTdf::init_state_space_model() {
+    try {
+        // Access JSON data from config
+        if (m_ext_params.config_file.empty()) {
+            std::cerr << "ChannelSParamTdf: State-space method requires config file" << std::endl;
+            m_ext_params.method = ChannelMethod::SIMPLE;
+            init_simple_model();
+            return;
+        }
+        
+        // Load and parse the config file
+        std::ifstream file(m_ext_params.config_file);
+        if (!file.is_open()) {
+            std::cerr << "ChannelSParamTdf: Cannot open config file: " << m_ext_params.config_file << std::endl;
+            m_ext_params.method = ChannelMethod::SIMPLE;
+            init_simple_model();
+            return;
+        }
+        
+        json config;
+        file >> config;
+        file.close();
+        
+        // Check for state_space section
+        if (!config.contains("state_space")) {
+            std::cerr << "ChannelSParamTdf: No state_space data in config" << std::endl;
+            m_ext_params.method = ChannelMethod::SIMPLE;
+            init_simple_model();
+            return;
+        }
+        
+        const auto& ss = config["state_space"];
+        
+        // Parse matrices A, B, C, D, E from JSON
+        if (!ss.contains("A") || !ss.contains("B") || !ss.contains("C") || !ss.contains("D")) {
+            std::cerr << "ChannelSParamTdf: State-space matrices A, B, C, D required" << std::endl;
+            m_ext_params.method = ChannelMethod::SIMPLE;
+            init_simple_model();
+            return;
+        }
+        
+        // Get dimensions
+        const auto& A_json = ss["A"];
+        int n_states = A_json.size();
+        if (n_states == 0) {
+            std::cerr << "ChannelSParamTdf: State-space A matrix is empty" << std::endl;
+            m_ext_params.method = ChannelMethod::SIMPLE;
+            init_simple_model();
+            return;
+        }
+        
+        int n_states_2 = A_json[0].size();
+        const auto& C_json = ss["C"];
+        int n_outputs = C_json.size();
+        
+        m_state_space.n_states = n_states;
+        m_state_space.n_outputs = n_outputs;
+        
+        // Resize matrices
+        m_state_space.A.resize(n_states, n_states);
+        m_state_space.B.resize(n_states, 1);
+        m_state_space.C.resize(n_outputs, n_states);
+        m_state_space.D.resize(n_outputs, 1);
+        m_state_space.E.resize(n_outputs, 1);
+        
+        // Fill A matrix (n x n)
+        for (int i = 0; i < n_states; ++i) {
+            for (int j = 0; j < n_states; ++j) {
+                m_state_space.A(i+1, j+1) = A_json[i][j].get<double>();
+            }
+        }
+        
+        // Fill B matrix (n x 1)
+        const auto& B_json = ss["B"];
+        for (int i = 0; i < n_states; ++i) {
+            m_state_space.B(i+1, 1) = B_json[i][0].get<double>();
+        }
+        
+        // Fill C matrix (n_c x n)
+        for (int i = 0; i < n_outputs; ++i) {
+            for (int j = 0; j < n_states; ++j) {
+                m_state_space.C(i+1, j+1) = C_json[i][j].get<double>();
+            }
+        }
+        
+        // Fill D matrix (n_c x 1)
+        const auto& D_json = ss["D"];
+        for (int i = 0; i < n_outputs; ++i) {
+            m_state_space.D(i+1, 1) = D_json[i][0].get<double>();
+        }
+        
+        // Fill E matrix (n_c x 1) - optional, default to 0
+        if (ss.contains("E")) {
+            const auto& E_json = ss["E"];
+            for (int i = 0; i < n_outputs; ++i) {
+                m_state_space.E(i+1, 1) = E_json[i][0].get<double>();
+            }
+        } else {
+            for (int i = 0; i < n_outputs; ++i) {
+                m_state_space.E(i+1, 1) = 0.0;
+            }
+        }
+        
+        // Initialize sca_ss filter with matrices
+        m_ss_filter(m_state_space.A, m_state_space.B, m_state_space.C, 
+                    m_state_space.D, m_state_space.E);
+        
+        std::cout << "[DEBUG] ChannelSParamTdf: State-space model initialized" << std::endl;
+        std::cout << "[DEBUG]   States: " << n_states << ", Outputs: " << n_outputs << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "ChannelSParamTdf: Error initializing state-space model: " << e.what() << std::endl;
+        m_ext_params.method = ChannelMethod::SIMPLE;
+        init_simple_model();
+    }
+}
+
+double ChannelSParamTdf::process_state_space(double x_in) {
+    // Use sca_ss filter to compute output
+    // sca_tdf::sca_ss takes input and returns output using state-space equations
+    return m_ss_filter(x_in);
+}
+
 void ChannelSParamTdf::init_pole_residue_model() {
     size_t n_poles = m_pole_residue_data.poles_real.size();
     std::cout << "[DEBUG] ChannelSParamTdf: init_pole_residue_model called, poles=" 
@@ -468,40 +599,213 @@ void ChannelSParamTdf::init_pole_residue_model() {
                   << "Residue: " << rr << " + " << ri << "i" << std::endl;
     }
     
-    // Reset proportional term state
+    // Clear previous state space data
+    m_pr_ss_A_flat.clear();
+    m_pr_ss_B_flat.clear();
+    m_pr_ss_C_flat.clear();
+    m_pr_ss_D_flat.clear();
+    m_pr_ss_states.clear();
+    m_pr_ss_Ad.clear();
+    m_pr_ss_Bd.clear();
+    m_pr_ss_Cd.clear();
+    m_pr_ss_Dd.clear();
+    
+    // Reset input history
     m_pr_input_prev = 0.0;
     
-    // For now, use the first complex pole pair only to test
-    // Full implementation would merge all sections into single H(s)
+    // Calculate Nyquist frequency and timestep
+    double nyquist_freq = m_ext_params.fs / 2.0;
+    double max_pole_freq = 0.8 * nyquist_freq;
+    double dt = 1.0 / m_ext_params.fs;
     
-    // Take the dominant pole pair (first one)
-    double pr = m_pole_residue_data.poles_real[0];
-    double pi = m_pole_residue_data.poles_imag[0];
-    double rr = m_pole_residue_data.residues_real[0];
-    double ri = m_pole_residue_data.residues_imag[0];
+    int used_sections = 0;
+    int skipped_sections = 0;
     
-    std::complex<double> p1(pr, pi);
-    std::complex<double> r1(rr, ri);
+    for (size_t i = 0; i < n_poles; ++i) {
+        double pr = m_pole_residue_data.poles_real[i];
+        double pi = m_pole_residue_data.poles_imag[i];
+        double rr = m_pole_residue_data.residues_real[i];
+        double ri = m_pole_residue_data.residues_imag[i];
+        
+        std::complex<double> p1(pr, pi);
+        std::complex<double> r1(rr, ri);
+        
+        // Check pole frequency (skip poles too close to Nyquist)
+        double pole_freq = std::abs(p1) / (2.0 * M_PI);
+        if (pole_freq > max_pole_freq) {
+            skipped_sections++;
+            continue;
+        }
+        
+        // Continuous-time state space matrices
+        std::vector<double> Ac, Bc, Cc, Dc;
+        int n_states = 0;
+        
+        if (std::abs(pi) > 1e-12) {
+            // Complex pole (scikit-rf only outputs upper half-plane poles)
+            // For real-valued systems, we need the conjugate pair
+            // H(s) = r/(s-p) + r*/(s-p*) = (b1*s + b0) / (s^2 + a1*s + a2)
+            
+            double b1 = 2.0 * rr;
+            double b0 = -2.0 * (rr * pr + ri * pi);
+            double a1 = -2.0 * pr;
+            double a2 = pr * pr + pi * pi;
+            
+            // State space (controllable canonical form):
+            Ac = {0.0, 1.0, -a2, -a1};  // 2x2
+            Bc = {0.0, 1.0};             // 2x1
+            Cc = {b0, b1};               // 1x2
+            Dc = {0.0};                  // 1x1
+            n_states = 2;
+            
+            used_sections++;
+        } else {
+            // Real pole: H(s) = r / (s - p)
+            Ac = {pr};      // 1x1 (pr is negative for stable poles)
+            Bc = {1.0};     // 1x1  (input directly to state)
+            Cc = {rr};      // 1x1  (scale by residue)
+            Dc = {0.0};     // 1x1
+            n_states = 1;
+            
+            used_sections++;
+        }
+        
+        // Discretize using bilinear transform (Tustin)
+        // Convert continuous-time (A,B,C,D) to discrete-time (Ad,Bd,Cd,Dd)
+        // Ad = (I - A*dt/2)^-1 * (I + A*dt/2)
+        // Bd = (I - A*dt/2)^-1 * B * dt
+        // Cd = C * (I - A*dt/2)^-1
+        // Dd = D + C * (I - A*dt/2)^-1 * B * dt/2
+        
+        std::vector<double> Ad(n_states * n_states);
+        std::vector<double> Bd(n_states);
+        std::vector<double> Cd(n_states);
+        double Dd = Dc[0];
+        
+        if (n_states == 1) {
+            // Scalar case: simple formulas
+            double a = Ac[0];
+            double b = Bc[0];
+            double c = Cc[0];
+            
+            // Ad = (1 + a*dt/2) / (1 - a*dt/2)
+            double denom = 1.0 - a * dt / 2.0;
+            Ad[0] = (1.0 + a * dt / 2.0) / denom;
+            
+            // Bd = b * dt / (1 - a*dt/2)
+            Bd[0] = b * dt / denom;
+            
+            // Cd = c / (1 - a*dt/2)
+            Cd[0] = c / denom;
+            
+            // Dd = c * b * dt / (2 * (1 - a*dt/2))
+            Dd = Dc[0] + c * b * dt / (2.0 * denom);
+        } else {
+            // 2x2 case
+            // (I - A*dt/2)
+            double i00 = 1.0 - Ac[0] * dt / 2.0;
+            double i01 = -Ac[1] * dt / 2.0;
+            double i10 = -Ac[2] * dt / 2.0;
+            double i11 = 1.0 - Ac[3] * dt / 2.0;
+            
+            // Inverse of (I - A*dt/2)
+            double det_inv = 1.0 / (i00 * i11 - i01 * i10);
+            double inv00 = i11 * det_inv;
+            double inv01 = -i01 * det_inv;
+            double inv10 = -i10 * det_inv;
+            double inv11 = i00 * det_inv;
+            
+            // (I + A*dt/2)
+            double p00 = 1.0 + Ac[0] * dt / 2.0;
+            double p01 = Ac[1] * dt / 2.0;
+            double p10 = Ac[2] * dt / 2.0;
+            double p11 = 1.0 + Ac[3] * dt / 2.0;
+            
+            // Ad = inv(I - A*dt/2) * (I + A*dt/2)
+            Ad[0] = inv00 * p00 + inv01 * p10;
+            Ad[1] = inv00 * p01 + inv01 * p11;
+            Ad[2] = inv10 * p00 + inv11 * p10;
+            Ad[3] = inv10 * p01 + inv11 * p11;
+            
+            // Bd = inv(I - A*dt/2) * B * dt
+            // B = [0; 1]
+            Bd[0] = inv01 * dt;
+            Bd[1] = inv11 * dt;
+            
+            // Cd = C * inv(I - A*dt/2)
+            // C = [c0, c1]
+            Cd[0] = Cc[0] * inv00 + Cc[1] * inv10;
+            Cd[1] = Cc[0] * inv01 + Cc[1] * inv11;
+            
+            // Dd = D + C * inv(I - A*dt/2) * B * dt/2
+            // = D + [Cd0, Cd1] * [0; 1] * dt/2 = D + Cd1 * dt/2
+            Dd = Dc[0] + Cd[1] * dt / 2.0;
+        }
+        
+        // Store discrete-time matrices
+        m_pr_ss_Ad.push_back(Ad);
+        m_pr_ss_Bd.push_back(Bd);
+        m_pr_ss_Cd.push_back(Cd);
+        m_pr_ss_Dd.push_back(Dd);
+        m_pr_ss_states.push_back(std::vector<double>(n_states, 0.0));
+    }
     
-    // H(s) = r/(s-p) + r*/(s-p*) = (b1*s + b0) / (s^2 + a1*s + a2)
-    double b0 = -2.0 * (r1 * std::conj(p1)).real();
-    double b1 = 2.0 * r1.real();
-    double a1 = -2.0 * p1.real();
-    double a2 = std::norm(p1);
+    std::cout << "[DEBUG] ChannelSParamTdf: Pole-residue filter initialized" << std::endl;
+    std::cout << "[DEBUG]   State space sections: " << used_sections << std::endl;
+    std::cout << "[DEBUG]   Skipped (freq > 0.8*Nyquist): " << skipped_sections << std::endl;
+}
+
+double ChannelSParamTdf::process_pole_residue_ss(double x_in) {
+    // Apply constant term
+    double y_out = m_pole_residue_data.constant * x_in;
     
-    // For sca_ltf_nd: H(s) = (b0 + b1*s) / (a0 + a1*s + a2*s^2)
-    // where a2 should be 1 for proper normalization
-    // So we use: num = [b0, b1], den = [a2, a1, 1]
-    m_pr_num_vec.resize(2);
-    m_pr_num_vec(0) = b0;
-    m_pr_num_vec(1) = b1;
+    // Apply proportional term if non-zero
+    // H_prop(s) = k*s corresponds to y(t) = k * dx/dt
+    // In discrete time: y[n] = k * (x[n] - x[n-1]) / dt
+    if (std::abs(m_pole_residue_data.proportional) > 1e-20) {
+        double dt = 1.0 / m_ext_params.fs;
+        y_out += m_pole_residue_data.proportional * (x_in - m_pr_input_prev) / dt;
+    }
+    m_pr_input_prev = x_in;
     
-    m_pr_den_vec.resize(3);
-    m_pr_den_vec(0) = a2;
-    m_pr_den_vec(1) = a1;
-    m_pr_den_vec(2) = 1.0;
+    // Apply cascaded discrete-time state space sections
+    // Each section: x[n+1] = Ad*x[n] + Bd*u[n]
+    //               y[n] = Cd*x[n] + Dd*u[n]
+    double signal = x_in;
     
-    std::cout << "[DEBUG] ChannelSParamTdf: Pole-residue filter initialized (simplified, 1 pair)" << std::endl;
+    for (size_t i = 0; i < m_pr_ss_states.size(); ++i) {
+        const auto& Ad = m_pr_ss_Ad[i];
+        const auto& Bd = m_pr_ss_Bd[i];
+        const auto& Cd = m_pr_ss_Cd[i];
+        double Dd = m_pr_ss_Dd[i];
+        auto& state = m_pr_ss_states[i];
+        
+        int n_states = state.size();
+        
+        // Compute output: y = Cd*s + Dd*u
+        double y = Dd * signal;
+        for (int j = 0; j < n_states; ++j) {
+            y += Cd[j] * state[j];
+        }
+        
+        // Update state: s[n+1] = Ad*s[n] + Bd*u[n]
+        std::vector<double> new_state(n_states);
+        for (int j = 0; j < n_states; ++j) {
+            new_state[j] = Bd[j] * signal;
+            for (int k = 0; k < n_states; ++k) {
+                new_state[j] += Ad[j * n_states + k] * state[k];
+            }
+        }
+        
+        // Store updated state
+        for (int j = 0; j < n_states; ++j) {
+            state[j] = new_state[j];
+        }
+        
+        signal = y;
+    }
+    
+    return y_out + signal;
 }
 
 
