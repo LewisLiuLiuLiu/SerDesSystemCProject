@@ -1830,3 +1830,1259 @@ eye_analyzer:
 **Document Version**: v2.0.0  
 **Last Updated**: 2026-01-23  
 **Author**: Yizhe Liu
+
+## 4. API Reference
+
+
+## Table of Contents
+
+- [Core Classes](#core-classes)
+  - [EyeAnalyzer](#eyeanalyzer)
+- [Modulation Formats](#modulation-formats)
+  - [ModulationFormat](#modulationformat)
+  - [NRZ](#nrz)
+  - [PAM4](#pam4)
+- [Analysis Schemes](#analysis-schemes)
+  - [BaseScheme](#basescheme)
+  - [StatisticalScheme](#statisticalscheme)
+  - [GoldenCdrScheme](#goldencdrscheme)
+  - [SamplerCentricScheme](#samplercentricscheme)
+- [Statistical Analysis](#statistical-analysis)
+  - [PulseResponseProcessor](#pulseresponseprocessor)
+  - [ISICalculator](#isicalculator)
+  - [NoiseInjector](#noiseinjector)
+  - [JitterInjector](#jitterinjector)
+  - [BERCalculator](#bercalculator)
+- [Jitter Analysis](#jitter-analysis)
+  - [JitterDecomposer](#jitterdecomposer)
+  - [JitterAnalyzer](#jitteranalyzer)
+- [BER Analysis](#ber-analysis)
+  - [BERAnalyzer](#beranalyzer)
+  - [BERContour](#bercontour)
+  - [BathtubCurve](#bathtubcurve)
+  - [QFactor](#qfactor)
+  - [JTolTemplate](#jtoltemplate)
+  - [JitterTolerance](#jittertolerance)
+- [Visualization](#visualization)
+  - [plot_eye_diagram](#plot_eye_diagram)
+  - [plot_jtol_curve](#plot_jtol_curve)
+  - [plot_bathtub_curve](#plot_bathtub_curve)
+  - [create_analysis_report](#create_analysis_report)
+
+---
+
+## Core Classes
+
+### EyeAnalyzer
+
+Unified eye analyzer supporting statistical and empirical modes.
+
+```python
+class EyeAnalyzer(
+    ui: float,
+    modulation: str = 'nrz',
+    mode: str = 'statistical',
+    target_ber: float = 1e-12,
+    samples_per_symbol: int = 16,
+    ui_bins: int = 128,
+    amp_bins: int = 256,
+    **kwargs
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ui` | float | required | Unit interval in seconds (e.g., 2.5e-11 for 10Gbps) |
+| `modulation` | str | 'nrz' | Modulation format: 'nrz' or 'pam4' |
+| `mode` | str | 'statistical' | Analysis mode: 'statistical' or 'empirical' |
+| `target_ber` | float | 1e-12 | Target bit error rate |
+| `samples_per_symbol` | int | 16 | Samples per symbol for statistical mode |
+| `ui_bins` | int | 128 | Number of UI bins for eye diagram |
+| `amp_bins` | int | 256 | Number of amplitude bins for eye diagram |
+| `n_ui_display` | float | 2.0 | Number of UI to display in eye diagram |
+| `center_eye` | bool | True | Center the eye pattern in display window |
+| `interpolate_factor` | int | 0 | Interpolation factor for upsampling (0=disabled) |
+| `jitter_method` | str | 'dual-dirac' | Jitter method: 'dual-dirac', 'tail-fit', 'auto' |
+
+**Example:**
+
+```python
+# Statistical mode for PAM4
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,
+    modulation='pam4',
+    mode='statistical',
+    target_ber=1e-12
+)
+
+# Empirical mode for NRZ
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,
+    modulation='nrz',
+    mode='empirical'
+)
+```
+
+#### Methods
+
+##### analyze
+
+```python
+analyzer.analyze(
+    input_data: Union[np.ndarray, Tuple[np.ndarray, np.ndarray]],
+    noise_sigma: float = 0.0,
+    jitter_dj: float = 0.0,
+    jitter_rj: float = 0.0,
+    **kwargs
+) -> Dict[str, Any]
+```
+
+Perform complete eye analysis.
+
+**Parameters:**
+- `input_data`: Pulse response array (statistical) or (time_array, value_array) tuple (empirical)
+- `noise_sigma`: Gaussian noise sigma in volts (statistical mode only)
+- `jitter_dj`: Deterministic jitter in UI
+- `jitter_rj`: Random jitter standard deviation in UI
+
+**Returns:**
+```python
+{
+    'eye_matrix': np.ndarray,       # 2D eye diagram data
+    'xedges': np.ndarray,           # Phase bin edges
+    'yedges': np.ndarray,           # Amplitude bin edges
+    'ber_contour': np.ndarray,      # BER contour (statistical mode)
+    'eye_metrics': {
+        'eye_height': float,        # Eye height in volts
+        'eye_width': float,         # Eye width in UI
+        'eye_area': float,          # Eye area in V*UI
+        # PAM4 additional:
+        'eye_heights_per_eye': List[float],
+        'eye_widths_per_eye': List[float],
+        'eye_height_min': float,
+        'eye_height_avg': float,
+    },
+    'jitter': {
+        'dj': float,                # Deterministic jitter
+        'rj': float,                # Random jitter
+    },
+    'bathtub_time': np.ndarray,     # Time bathtub curve
+    'bathtub_voltage': np.ndarray,  # Voltage bathtub curve
+}
+```
+
+##### analyze_jtol
+
+```python
+analyzer.analyze_jtol(
+    pulse_responses: List[np.ndarray],
+    sj_frequencies: List[float],
+    template: str = 'ieee_802_3ck',
+    **kwargs
+) -> Dict[str, Any]
+```
+
+Perform jitter tolerance test.
+
+**Parameters:**
+- `pulse_responses`: List of pulse responses with different SJ amplitudes
+- `sj_frequencies`: List of SJ frequencies in Hz
+- `template`: JTOL template name ('ieee_802_3ck', 'oif_cei_56g', 'jedec_ddr5', 'pcie_gen6')
+
+**Returns:**
+```python
+{
+    'sj_frequencies': List[float],   # SJ frequencies tested
+    'sj_amplitudes': List[float],    # Required SJ amplitudes
+    'template': str,                 # Template used
+    'pass_fail': List[bool],         # Pass/fail per frequency
+    'margins': Dict[str, float],     # Margin analysis
+    'overall_pass': bool,            # Overall pass/fail
+}
+```
+
+##### plot_eye
+
+```python
+analyzer.plot_eye(
+    ax=None,
+    cmap: str = 'hot',
+    title: str = 'Eye Diagram',
+    show_metrics: bool = True,
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot eye diagram.
+
+##### plot_jtol
+
+```python
+analyzer.plot_jtol(
+    jtol_results: Dict[str, Any],
+    ax=None,
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot JTOL curve.
+
+##### plot_bathtub
+
+```python
+analyzer.plot_bathtub(
+    direction: str = 'time',
+    ax=None,
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot bathtub curve.
+
+##### create_report
+
+```python
+analyzer.create_report(
+    output_file: Optional[str] = None,
+    format: str = 'text',
+    include_plots: bool = True,
+    **kwargs
+) -> str
+```
+
+Create comprehensive analysis report.
+
+**Parameters:**
+- `output_file`: Output file path (optional)
+- `format`: Report format ('text', 'html', 'markdown')
+- `include_plots`: Whether to include plots
+
+---
+
+## Modulation Formats
+
+### ModulationFormat
+
+Abstract base class for modulation formats.
+
+```python
+class ModulationFormat(ABC)
+```
+
+**Properties:**
+- `name`: Format name
+- `num_levels`: Number of signal levels (M)
+- `num_eyes`: Number of eye openings (M-1)
+
+**Methods:**
+- `get_levels() -> np.ndarray`: Signal level array
+- `get_thresholds() -> np.ndarray`: Decision thresholds
+- `get_eye_centers() -> np.ndarray`: Eye center voltages
+- `get_level_names() -> List[str]`: Level names
+
+### NRZ
+
+```python
+class NRZ(ModulationFormat)
+```
+
+NRZ/PAM2 modulation: 2 levels at -1, 1.
+
+**Levels:** `[-1, 1]`
+**Thresholds:** `[0]`
+
+### PAM4
+
+```python
+class PAM4(ModulationFormat)
+```
+
+PAM4 modulation: 4 levels at -3, -1, 1, 3.
+
+**Levels:** `[-3, -1, 1, 3]`
+**Thresholds:** `[-2, 0, 2]`
+**Eye Centers:** `[-2, 0, 2]` (lower, middle, upper)
+
+### create_modulation
+
+```python
+create_modulation(name: str) -> ModulationFormat
+```
+
+Factory function to create modulation format instances.
+
+**Parameters:**
+- `name`: 'nrz' or 'pam4'
+
+---
+
+## Analysis Schemes
+
+### BaseScheme
+
+```python
+class BaseScheme(ABC)
+```
+
+Abstract base class for eye analysis schemes.
+
+### StatisticalScheme
+
+```python
+class StatisticalScheme(
+    ui: float,
+    modulation: str = 'nrz',
+    ui_bins: int = 128,
+    amp_bins: int = 256,
+    samples_per_symbol: int = 16,
+    **kwargs
+)
+```
+
+Statistical eye analysis scheme for pre-simulation channel characterization.
+
+**Key Methods:**
+- `analyze(pulse_response, dt, noise_sigma, dj, rj, target_ber) -> Dict`
+- `get_ber_contour() -> np.ndarray`
+- `get_xedges() -> np.ndarray`
+- `get_yedges() -> np.ndarray`
+
+### GoldenCdrScheme
+
+```python
+class GoldenCdrScheme(**kwargs)
+```
+
+Golden CDR scheme with ideal clock recovery.
+
+### SamplerCentricScheme
+
+```python
+class SamplerCentricScheme(**kwargs)
+```
+
+Sampler-centric analysis scheme.
+
+---
+
+## Statistical Analysis
+
+### PulseResponseProcessor
+
+```python
+class PulseResponseProcessor(
+    ui: float,
+    samples_per_symbol: int = 16
+)
+```
+
+Process channel pulse responses for statistical eye analysis.
+
+**Methods:**
+- `process(pulse_response, dt) -> Dict`: Process pulse response
+- `get_precursor_isi() -> np.ndarray`: Get precursor ISI samples
+- `get_postcursor_isi() -> np.ndarray`: Get postcursor ISI samples
+
+### ISICalculator
+
+```python
+class ISICalculator(modulation: ModulationFormat)
+```
+
+Calculate inter-symbol interference (ISI) effects.
+
+**Methods:**
+- `calculate_isi(pulse_response) -> Dict`: Calculate ISI components
+- `get_voltage_pdf() -> Tuple[np.ndarray, np.ndarray]`: Get voltage PDF
+
+### NoiseInjector
+
+```python
+class NoiseInjector(
+    noise_sigma: float = 0.0,
+    noise_type: str = 'gaussian'
+)
+```
+
+Inject noise into statistical eye analysis.
+
+**Methods:**
+- `inject_noise(voltage_pdf) -> np.ndarray`: Inject noise into PDF
+- `set_noise_sigma(sigma)`: Update noise sigma
+
+### JitterInjector
+
+```python
+class JitterInjector(
+    dj: float = 0.0,
+    rj: float = 0.0,
+    sj: Dict[float, float] = None
+)
+```
+
+Inject jitter into statistical eye analysis.
+
+**Parameters:**
+- `dj`: Deterministic jitter in UI (peak-to-peak)
+- `rj`: Random jitter standard deviation in UI
+- `sj`: Dictionary of {frequency: amplitude} for sinusoidal jitter
+
+### BERCalculator
+
+```python
+class BERCalculator(
+    modulation: ModulationFormat,
+    ber_algorithm: str = 'oif_cei'
+)
+```
+
+OIF-CEI compliant BER calculator with strict conditional probability.
+
+**Methods:**
+- `calculate_ber(eye_data, threshold, phase) -> float`: Calculate BER at point
+- `calculate_ber_contour(eye_matrix, levels) -> np.ndarray`: Calculate BER contour
+- `bathtub_time(eye_data, threshold) -> Tuple[np.ndarray, np.ndarray]`: Time bathtub
+- `bathtub_voltage(eye_data, phase) -> Tuple[np.ndarray, np.ndarray]`: Voltage bathtub
+
+---
+
+## Jitter Analysis
+
+### JitterDecomposer
+
+```python
+class JitterDecomposer(
+    ui: float,
+    method: str = 'dual-dirac',
+    psd_nperseg: int = 16384
+)
+```
+
+Jitter decomposition engine supporting multiple extraction methods.
+
+**Methods:**
+
+- `dual-dirac`: Dual-Dirac model with Gaussian fitting
+- `tail-fit`: Tail-fitting for non-bimodal DJ
+- `auto`: Auto-detect best method
+
+**Methods:**
+
+```python
+extract(
+    phase_array: np.ndarray,
+    value_array: np.ndarray,
+    target_ber: float = 1e-12
+) -> Dict[str, Any]
+```
+
+Extract jitter components.
+
+**Returns:**
+```python
+{
+    'rj_sigma': float,          # Random jitter (seconds)
+    'dj_pp': float,             # Deterministic jitter (seconds)
+    'tj_at_ber': float,         # Total jitter at target BER
+    'target_ber': float,        # Target BER used
+    'q_factor': float,          # Q function value
+    'fit_method': str,          # Method used
+    'fit_quality': float,       # R-squared (0-1)
+    'pj_info': {                # Periodic jitter info
+        'detected': bool,
+        'frequencies': List[float],
+        'amplitudes': List[float],
+        'count': int
+    }
+}
+```
+
+### JitterAnalyzer
+
+```python
+class JitterAnalyzer(
+    modulation: str = 'nrz',
+    signal_amplitude: float = 1.0
+)
+```
+
+Jitter analyzer supporting NRZ and PAM4 multi-eye analysis.
+
+**Methods:**
+
+```python
+analyze(
+    signal: np.ndarray,
+    time: np.ndarray,
+    ber: float = 1e-12
+) -> Union[Dict[str, float], List[Dict[str, Any]]]
+```
+
+Analyze jitter in signal.
+
+**Returns:**
+- NRZ: `{'rj': float, 'dj': float, 'tj': float}`
+- PAM4: List of per-eye results `[{'eye_id': int, 'eye_name': str, 'rj': float, 'dj': float, 'tj': float}, ...]`
+
+---
+
+## BER Analysis
+
+### BERAnalyzer
+
+```python
+class BERAnalyzer(
+    modulation: ModulationFormat,
+    target_ber: float = 1e-12
+)
+```
+
+Comprehensive BER analyzer.
+
+**Methods:**
+- `analyze(eye_data) -> Dict`: Complete BER analysis
+- `eye_opening(ber_threshold) -> Dict`: Eye opening at BER threshold
+
+### BERContour
+
+```python
+class BERContour(
+    levels: List[float] = [1e-6, 1e-9, 1e-12, 1e-15]
+)
+```
+
+BER contour generator.
+
+**Methods:**
+- `generate(eye_matrix) -> np.ndarray`: Generate BER contour
+- `plot(ax=None, **kwargs)`: Plot contour
+
+### BathtubCurve
+
+```python
+class BathtubCurve(
+    direction: str = 'time',
+    ber_range: Tuple[float, float] = (1e-18, 1e-3)
+)
+```
+
+Bathtub curve generator for time or voltage direction.
+
+**Methods:**
+- `generate(eye_data, threshold=None) -> Tuple[np.ndarray, np.ndarray]`: Generate curve
+- `opening_at_ber(ber) -> float`: Eye opening at specific BER
+
+### QFactor
+
+```python
+class QFactor
+```
+
+Q-factor conversion utilities.
+
+**Static Methods:**
+- `ber_to_q(ber: float) -> float`: Convert BER to Q-factor
+- `q_to_ber(q: float) -> float`: Convert Q-factor to BER
+- `tj_calculation(rj: float, dj: float, ber: float) -> float`: Calculate TJ
+
+### JTolTemplate
+
+```python
+class JTolTemplate(
+    name: str,
+    frequencies: List[float],
+    amplitudes: List[float]
+)
+```
+
+Jitter tolerance template.
+
+**Built-in Templates:**
+- `ieee_802_3ck()`: IEEE 802.3ck template
+- `oif_cei_56g()`: OIF-CEI-56G template
+- `jedec_ddr5()`: JEDEC DDR5 template
+- `pcie_gen6()`: PCIe Gen6 template
+
+### JitterTolerance
+
+```python
+class JitterTolerance(
+    template: JTolTemplate,
+    margins: Dict[str, float] = None
+)
+```
+
+Jitter tolerance test runner.
+
+**Methods:**
+- `test(measured_sj: Dict[float, float]) -> Dict`: Run JTOL test
+- `calculate_margins() -> Dict`: Calculate margins
+
+---
+
+## Visualization
+
+### plot_eye_diagram
+
+```python
+plot_eye_diagram(
+    eye_matrix: np.ndarray,
+    xedges: np.ndarray,
+    yedges: np.ndarray,
+    ber_contour: np.ndarray = None,
+    ax=None,
+    cmap: str = 'hot',
+    title: str = 'Eye Diagram',
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot eye diagram with optional BER contour overlay.
+
+### plot_jtol_curve
+
+```python
+plot_jtol_curve(
+    frequencies: List[float],
+    amplitudes: List[float],
+    template: JTolTemplate = None,
+    ax=None,
+    title: str = 'Jitter Tolerance',
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot JTOL curve with optional template comparison.
+
+### plot_bathtub_curve
+
+```python
+plot_bathtub_curve(
+    x: np.ndarray,
+    ber: np.ndarray,
+    direction: str = 'time',
+    ax=None,
+    title: str = 'Bathtub Curve',
+    **kwargs
+) -> Union[Figure, Axes]
+```
+
+Plot bathtub curve.
+
+### create_analysis_report
+
+```python
+create_analysis_report(
+    metrics: Dict[str, Any],
+    output_file: str,
+    format: str = 'pdf',
+    include_plots: bool = True,
+    **kwargs
+) -> str
+```
+
+Create comprehensive analysis report.
+
+---
+
+## Type Aliases
+
+```python
+from typing import Dict, Any, Union, Tuple, List, Optional
+import numpy as np
+
+# Common type aliases
+EyeMatrix = np.ndarray      # 2D eye diagram histogram
+BERContour = np.ndarray     # 2D BER contour
+Metrics = Dict[str, Any]    # Analysis results dictionary
+Waveform = Tuple[np.ndarray, np.ndarray]  # (time, value) tuple
+```
+
+---
+
+## Exceptions
+
+```python
+class EyeAnalyzerError(Exception):
+    """Base exception for eye_analyzer."""
+    pass
+
+class ValidationError(EyeAnalyzerError):
+    """Input validation error."""
+    pass
+
+class ConvergenceError(EyeAnalyzerError):
+    """Algorithm convergence error."""
+    pass
+```
+
+## 5. Usage Examples
+
+
+This document provides comprehensive usage examples for the Eye Analyzer toolkit.
+
+## Table of Contents
+
+- [Basic Usage](#basic-usage)
+  - [Statistical Analysis (PAM4)](#statistical-analysis-pam4)
+  - [Empirical Analysis (NRZ)](#empirical-analysis-nrz)
+- [Advanced Features](#advanced-features)
+  - [Jitter Tolerance Testing](#jitter-tolerance-testing)
+  - [BER Contour Analysis](#ber-contour-analysis)
+  - [Multi-Eye Jitter Analysis (PAM4)](#multi-eye-jitter-analysis-pam4)
+- [Visualization](#visualization)
+  - [Custom Eye Diagram Plots](#custom-eye-diagram-plots)
+  - [Bathtub Curves](#bathtub-curves)
+  - [JTOL Curves](#jtol-curves)
+- [Working with Modulation Formats](#working-with-modulation-formats)
+- [Report Generation](#report-generation)
+
+---
+
+## Basic Usage
+
+### Statistical Analysis (PAM4)
+
+Statistical eye analysis is used for pre-simulation channel characterization.
+
+```python
+import numpy as np
+from eye_analyzer import EyeAnalyzer
+
+# Load or create pulse response
+# Pulse response represents the channel's impulse response
+pulse_response = np.loadtxt('channel_pulse_response.csv')
+
+# Create PAM4 analyzer
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,          # 40 Gbps (25 ps UI)
+    modulation='pam4',
+    mode='statistical',
+    target_ber=1e-12,    # Target BER for TJ calculation
+    samples_per_symbol=16,
+    ui_bins=128,
+    amp_bins=256
+)
+
+# Analyze with noise and jitter injection
+result = analyzer.analyze(
+    pulse_response,
+    noise_sigma=0.01,    # 10 mV RMS noise
+    jitter_dj=0.05,      # 0.05 UI DJ
+    jitter_rj=0.02       # 0.02 UI RJ (1 sigma)
+)
+
+# Access eye metrics
+metrics = result['eye_metrics']
+print(f"Eye Height: {metrics['eye_height']*1000:.2f} mV")
+print(f"Eye Width: {metrics['eye_width']:.3f} UI")
+print(f"Eye Area: {metrics['eye_area']*1000:.2f} mV·UI")
+
+# PAM4-specific: per-eye metrics
+if 'eye_heights_per_eye' in metrics:
+    for i, (h, w) in enumerate(zip(
+        metrics['eye_heights_per_eye'],
+        metrics['eye_widths_per_eye']
+    )):
+        eye_names = ['Lower', 'Middle', 'Upper']
+        print(f"{eye_names[i]} Eye - Height: {h*1000:.2f} mV, Width: {w:.3f} UI")
+
+# Access jitter results
+jitter = result['jitter']
+print(f"RJ: {jitter['rj']*1000:.2f} ps")
+print(f"DJ: {jitter['dj']*1000:.2f} ps")
+```
+
+### Empirical Analysis (NRZ)
+
+Empirical eye analysis is used for post-simulation or measured waveforms.
+
+```python
+import numpy as np
+from eye_analyzer import EyeAnalyzer
+
+# Load waveform data
+# Format: time (seconds), voltage (volts)
+data = np.loadtxt('waveform.csv', delimiter=',')
+time_array = data[:, 0]
+value_array = data[:, 1]
+
+# Create NRZ analyzer
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,          # 10 Gbps (100 ps UI)
+    modulation='nrz',
+    mode='empirical',
+    ui_bins=128,
+    amp_bins=128
+)
+
+# Analyze waveform
+result = analyzer.analyze((time_array, value_array))
+
+# Access results
+metrics = result['eye_metrics']
+print(f"Eye Height: {metrics['eye_height']*1000:.2f} mV")
+print(f"Eye Width: {metrics['eye_width']:.3f} UI")
+
+# Visualize
+fig = analyzer.plot_eye(title='NRZ Eye Diagram')
+fig.savefig('eye_diagram.png', dpi=300)
+```
+
+---
+
+## Advanced Features
+
+### Jitter Tolerance Testing
+
+Test receiver jitter tolerance against industry standards.
+
+```python
+import numpy as np
+from eye_analyzer import EyeAnalyzer
+
+# Load multiple pulse responses with different SJ
+# Each pulse response corresponds to a different SJ frequency/amplitude
+sj_frequencies = [1e6, 5e6, 10e6, 50e6, 100e6]  # Hz
+pulse_responses = []
+
+for freq in sj_frequencies:
+    # Load pulse response with SJ at this frequency
+    pr = np.loadtxt(f'pulse_response_sj_{freq/1e6:.0f}mhz.csv')
+    pulse_responses.append(pr)
+
+# Create analyzer
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,
+    modulation='pam4',
+    mode='statistical'
+)
+
+# Run JTOL test with IEEE 802.3ck template
+jtol_result = analyzer.analyze_jtol(
+    pulse_responses=pulse_responses,
+    sj_frequencies=sj_frequencies,
+    template='ieee_802_3ck'  # Options: 'ieee_802_3ck', 'oif_cei_56g', 'jedec_ddr5', 'pcie_gen6'
+)
+
+# Check results
+print(f"Overall Pass: {jtol_result['overall_pass']}")
+print(f"Margins: {jtol_result['margins']}")
+
+# Print per-frequency results
+for freq, pf in zip(
+    jtol_result['sj_frequencies'],
+    jtol_result['pass_fail']
+):
+    status = "PASS" if pf else "FAIL"
+    print(f"  {freq/1e6:.1f} MHz: {status}")
+
+# Plot JTOL curve
+fig = analyzer.plot_jtol(jtol_result, title='Jitter Tolerance Test')
+fig.savefig('jtol_curve.png', dpi=300)
+```
+
+### BER Contour Analysis
+
+Generate and analyze BER contours for eye mask compliance.
+
+```python
+import numpy as np
+from eye_analyzer import EyeAnalyzer, BERContour
+
+# Statistical analysis
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,
+    modulation='pam4',
+    mode='statistical'
+)
+
+pulse_response = np.loadtxt('pulse_response.csv')
+result = analyzer.analyze(pulse_response, noise_sigma=0.005)
+
+# Access BER contour
+ber_contour = result['ber_contour']
+
+# Create BER contour analyzer
+contour_analyzer = BERContour(
+    levels=[1e-6, 1e-9, 1e-12, 1e-15]  # BER levels to plot
+)
+
+# Analyze eye opening at specific BER
+opening = contour_analyzer.eye_opening(ber_contour, target_ber=1e-12)
+print(f"Eye opening at 1e-12: {opening['width']:.3f} UI x {opening['height']*1000:.2f} mV")
+
+# Plot with BER contours
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(10, 6))
+analyzer.plot_eye(ax=ax, title='Eye Diagram with BER Contours')
+
+# Overlay BER contours
+X, Y = np.meshgrid(result['xedges'][:-1], result['yedges'][:-1])
+ax.contour(X, Y, ber_contour.T, levels=[1e-12], colors='white', linewidths=2)
+
+fig.savefig('eye_with_contours.png', dpi=300)
+```
+
+### Multi-Eye Jitter Analysis (PAM4)
+
+Analyze jitter separately for each eye in PAM4 signals.
+
+```python
+import numpy as np
+from eye_analyzer import JitterAnalyzer
+
+# Load waveform
+data = np.loadtxt('pam4_waveform.csv', delimiter=',')
+time = data[:, 0]
+signal = data[:, 1]
+
+# Create PAM4 jitter analyzer
+analyzer = JitterAnalyzer(
+    modulation='pam4',
+    signal_amplitude=1.0  # Normalized amplitude
+)
+
+# Analyze jitter
+results = analyzer.analyze(signal, time, ber=1e-12)
+
+# Results is a list of per-eye results
+eye_names = ['Lower Eye', 'Middle Eye', 'Upper Eye']
+for eye_result in results:
+    eye_id = eye_result['eye_id']
+    name = eye_result['eye_name']
+    rj = eye_result['rj'] * 1e12  # Convert to ps
+    dj = eye_result['dj'] * 1e12
+    tj = eye_result['tj'] * 1e12
+    
+    print(f"{name} (ID: {eye_id}):")
+    print(f"  RJ: {rj:.2f} ps")
+    print(f"  DJ: {dj:.2f} ps")
+    print(f"  TJ@1e-12: {tj:.2f} ps")
+```
+
+---
+
+## Visualization
+
+### Custom Eye Diagram Plots
+
+Create customized eye diagram visualizations.
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from eye_analyzer import EyeAnalyzer, plot_eye_diagram
+
+# Analyze
+analyzer = EyeAnalyzer(ui=2.5e-11, modulation='nrz', mode='empirical')
+time = np.linspace(0, 1e-6, 10000)
+waveform = np.random.choice([-0.4, 0.4], size=10000)
+result = analyzer.analyze((time, waveform))
+
+# Method 1: Using analyzer method
+fig1 = analyzer.plot_eye(
+    cmap='hot',
+    title='NRZ Eye (Hot Colormap)'
+)
+fig1.savefig('eye_hot.png', dpi=300)
+
+# Method 2: Using standalone function with custom styling
+fig2, ax = plt.subplots(figsize=(12, 8))
+plot_eye_diagram(
+    eye_matrix=result['eye_matrix'],
+    xedges=result['xedges'],
+    yedges=result['yedges'],
+    ax=ax,
+    cmap='viridis',
+    title='NRZ Eye (Viridis)'
+)
+
+# Add custom annotations
+ax.axvline(x=0.5, color='red', linestyle='--', label='Center')
+ax.legend()
+fig2.savefig('eye_custom.png', dpi=300)
+
+# Method 3: Multi-plot figure
+fig3, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+# Eye diagram
+analyzer.plot_eye(ax=axes[0], title='Eye Diagram')
+
+# Cross-section at center
+x_centers = (result['xedges'][:-1] + result['xedges'][1:]) / 2
+center_idx = len(x_centers) // 2
+cross_section = result['eye_matrix'][center_idx, :]
+y_centers = (result['yedges'][:-1] + result['yedges'][1:]) / 2
+
+axes[1].plot(cross_section, y_centers)
+axes[1].set_xlabel('Probability Density')
+axes[1].set_ylabel('Voltage [V]')
+axes[1].set_title('Cross-section at Center')
+axes[1].grid(True)
+
+fig3.tight_layout()
+fig3.savefig('eye_analysis.png', dpi=300)
+```
+
+### Bathtub Curves
+
+Generate and plot bathtub curves.
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from eye_analyzer import EyeAnalyzer, BathtubCurve
+
+# Analyze
+analyzer = EyeAnalyzer(ui=2.5e-11, modulation='nrz', mode='statistical')
+pulse_response = np.loadtxt('pulse_response.csv')
+result = analyzer.analyze(pulse_response, noise_sigma=0.01)
+
+# Time bathtub (horizontal slice)
+bathtub_time = BathtubCurve(direction='time')
+t_phases, t_ber = bathtub_time.generate(
+    result['eye_matrix'],
+    threshold=0.0  # At zero crossing
+)
+
+# Voltage bathtub (vertical slice at center phase)
+bathtub_voltage = BathtubCurve(direction='voltage')
+v_voltages, v_ber = bathtub_voltage.generate(
+    result['eye_matrix'],
+    phase=0.5  # At center UI
+)
+
+# Plot both
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# Time bathtub
+axes[0].semilogy(t_phases, t_ber, 'b-', linewidth=2)
+axes[0].axhline(y=1e-12, color='r', linestyle='--', label='Target BER')
+axes[0].set_xlabel('Phase [UI]')
+axes[0].set_ylabel('BER')
+axes[0].set_title('Time Bathtub Curve')
+axes[0].grid(True, which='both', linestyle='--', alpha=0.5)
+axes[0].legend()
+
+# Voltage bathtub
+axes[1].semilogy(v_voltages, v_ber, 'g-', linewidth=2)
+axes[1].axhline(y=1e-12, color='r', linestyle='--', label='Target BER')
+axes[1].set_xlabel('Voltage [V]')
+axes[1].set_ylabel('BER')
+axes[1].set_title('Voltage Bathtub Curve')
+axes[1].grid(True, which='both', linestyle='--', alpha=0.5)
+axes[1].legend()
+
+fig.tight_layout()
+fig.savefig('bathtub_curves.png', dpi=300)
+```
+
+### JTOL Curves
+
+Plot jitter tolerance curves with industry standard templates.
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from eye_analyzer import EyeAnalyzer, JTolTemplate
+
+# Compare multiple standards
+standards = ['ieee_802_3ck', 'oif_cei_56g', 'jedec_ddr5']
+colors = ['blue', 'green', 'red']
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+for std, color in zip(standards, colors):
+    template = JTolTemplate.from_standard(std)
+    ax.loglog(
+        template.frequencies,
+        template.amplitudes,
+        color=color,
+        linewidth=2,
+        label=std.upper().replace('_', '-')
+    )
+
+ax.set_xlabel('SJ Frequency [Hz]')
+ax.set_ylabel('SJ Amplitude [UI]')
+ax.set_title('JTOL Standards Comparison')
+ax.grid(True, which='both', linestyle='--', alpha=0.5)
+ax.legend()
+
+fig.savefig('jtol_standards.png', dpi=300)
+```
+
+---
+
+## Working with Modulation Formats
+
+Direct usage of modulation format classes.
+
+```python
+from eye_analyzer import NRZ, PAM4, create_modulation
+
+# Create modulation instances
+nrz = NRZ()
+pam4 = PAM4()
+
+# Query properties
+print(f"NRZ levels: {nrz.get_levels()}")           # [-1, 1]
+print(f"PAM4 thresholds: {pam4.get_thresholds()}")  # [-2, 0, 2]
+print(f"PAM4 eye centers: {pam4.get_eye_centers()}")  # [-2, 0, 2]
+print(f"PAM4 number of eyes: {pam4.num_eyes}")      # 3
+
+# Factory function
+mod = create_modulation('pam4')
+print(f"Created: {mod.name}")
+
+# Iterate over PAM4 levels and thresholds
+levels = pam4.get_levels()
+thresholds = pam4.get_thresholds()
+print("PAM4 level transitions:")
+for i in range(len(levels) - 1):
+    print(f"  {levels[i]:+.0f} -> {levels[i+1]:+.0f} (threshold: {thresholds[i]:+.0f})")
+```
+
+---
+
+## Report Generation
+
+Generate comprehensive analysis reports.
+
+```python
+from eye_analyzer import EyeAnalyzer
+
+# Analyze
+analyzer = EyeAnalyzer(ui=2.5e-11, modulation='pam4', mode='statistical')
+pulse_response = np.loadtxt('pulse_response.csv')
+result = analyzer.analyze(pulse_response, noise_sigma=0.01)
+
+# Text report
+text_report = analyzer.create_report(format='text')
+print(text_report)
+
+# Markdown report
+md_report = analyzer.create_report(format='markdown')
+with open('report.md', 'w') as f:
+    f.write(md_report)
+
+# HTML report
+html_report = analyzer.create_report(format='html')
+with open('report.html', 'w') as f:
+    f.write(html_report)
+
+# Save to file directly
+analyzer.create_report(
+    output_file='analysis_report.txt',
+    format='text'
+)
+
+# Custom report with plots
+analyzer.create_report(
+    output_file='full_report.pdf',
+    format='pdf',
+    include_plots=True
+)
+```
+
+### Sample Text Report Output
+
+```
+============================================================
+Eye Diagram Analysis Report
+============================================================
+
+Mode: statistical
+Modulation: pam4
+UI: 25.00 ps
+Target BER: 1e-12
+
+Eye Metrics:
+----------------------------------------
+  Eye Height: 120.50 mV
+  Eye Width: 0.750 UI
+  Eye Area: 90.38 mV*UI
+
+Jitter Analysis:
+----------------------------------------
+  DJ: 0.050 UI
+  RJ: 0.020 UI
+
+============================================================
+```
+
+---
+
+## Complete Workflow Example
+
+A complete workflow from channel characterization to compliance testing.
+
+```python
+import numpy as np
+from eye_analyzer import (
+    EyeAnalyzer, JitterAnalyzer,
+    BERContour, JTolTemplate
+)
+
+# Step 1: Channel Characterization
+print("Step 1: Channel Characterization")
+pulse_response = np.loadtxt('channel_pulse_response.csv')
+
+analyzer = EyeAnalyzer(
+    ui=2.5e-11,  # 40 Gbps
+    modulation='pam4',
+    mode='statistical',
+    target_ber=1e-12
+)
+
+result = analyzer.analyze(
+    pulse_response,
+    noise_sigma=0.008,
+    jitter_dj=0.04,
+    jitter_rj=0.015
+)
+
+print(f"Eye Height: {result['eye_metrics']['eye_height']*1000:.2f} mV")
+print(f"Eye Width: {result['eye_metrics']['eye_width']:.3f} UI")
+
+# Step 2: BER Contour Analysis
+print("\nStep 2: BER Contour Analysis")
+contour = BERContour(levels=[1e-6, 1e-9, 1e-12])
+ber_data = contour.generate(result['eye_matrix'])
+
+# Step 3: Jitter Tolerance Test
+print("\nStep 3: Jitter Tolerance Test")
+sj_freqs = np.logspace(6, 8, 20)  # 1 MHz to 100 MHz
+sj_pulse_responses = [
+    np.loadtxt(f'pulse_sj_{f/1e6:.0f}mhz.csv')
+    for f in sj_freqs
+]
+
+jtol_result = analyzer.analyze_jtol(
+    pulse_responses=sj_pulse_responses,
+    sj_frequencies=sj_freqs,
+    template='ieee_802_3ck'
+)
+
+print(f"JTOL Pass: {jtol_result['overall_pass']}")
+
+# Step 4: Generate Report
+print("\nStep 4: Generate Report")
+analyzer.create_report(
+    output_file='channel_compliance_report.txt',
+    format='text'
+)
+
+# Step 5: Visualization
+print("\nStep 5: Generate Plots")
+fig = analyzer.plot_eye(title='PAM4 Eye Diagram')
+fig.savefig('eye_diagram.png', dpi=300)
+
+fig = analyzer.plot_jtol(jtol_result)
+fig.savefig('jtol_curve.png', dpi=300)
+
+print("\nAnalysis complete!")
+```
