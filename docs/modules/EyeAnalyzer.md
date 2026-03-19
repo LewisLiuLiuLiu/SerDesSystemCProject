@@ -1831,7 +1831,7 @@ eye_analyzer:
 **Last Updated**: 2026-01-23  
 **Author**: Yizhe Liu
 
-## 4. API Reference
+## 9. API Reference
 
 
 ## Table of Contents
@@ -2518,7 +2518,7 @@ class ConvergenceError(EyeAnalyzerError):
     pass
 ```
 
-## 5. Usage Examples
+## 10. Usage Examples
 
 
 This document provides comprehensive usage examples for the Eye Analyzer toolkit.
