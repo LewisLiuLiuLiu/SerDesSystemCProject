@@ -135,44 +135,120 @@ class VectorFittingPY:
     
     def to_state_space(self, fs: float = 80e9) -> Dict:
         """
-        Convert pole-residue form to state-space representation.
+        Convert pole-residue form to real state-space representation.
         
-        State-space form:
-            x_dot = A*x + B*u
-            y = C*x + D*u + E*u_dot
+        For complex conjugate pole pairs p = σ±jω with residues r = α±jβ:
+        - Create 2x2 A block: [[σ, ω], [-ω, σ]]
+        - Create B block: [[2], [0]]
+        - Create C block: [[α, -β]]
+        
+        For real poles, keep 1x1 form: A=[p], B=[1], C=[r]
+        
+        This ensures compatibility with sca_tdf::sca_ss which requires real matrices.
         """
         if not self._fitted:
             raise RuntimeError("Must call fit() before to_state_space()")
         
-        n = len(self.poles)
+        poles = self.poles
+        residues = self.residues
+        n = len(poles)
         
-        # A matrix: diagonal matrix of poles
-        A_complex = np.diag(self.poles)
+        # Build real state-space matrices
+        A_blocks = []
+        B_blocks = []
+        C_blocks = []
         
-        # Convert to JSON-serializable format (complex as dict)
-        A = []
-        for i in range(n):
-            row = []
-            for j in range(n):
-                val = A_complex[i, j]
-                row.append({'real': float(val.real), 'imag': float(val.imag)})
-            A.append(row)
+        i = 0
+        while i < n:
+            p = poles[i]
+            r = residues[i]
+            
+            if np.iscomplexobj(p) or np.imag(p) != 0:
+                # Complex pole - look for conjugate pair
+                # Find if there's a conjugate pair
+                found_pair = False
+                if i + 1 < n:
+                    p_next = poles[i + 1]
+                    # Check if it's approximately conjugate
+                    if np.isclose(np.real(p), np.real(p_next), rtol=1e-10) and \
+                       np.isclose(np.abs(np.imag(p)), np.abs(np.imag(p_next)), rtol=1e-10) and \
+                       np.sign(np.imag(p)) != np.sign(np.imag(p_next)):
+                        # Found conjugate pair
+                        p_conj = p_next
+                        r_conj = residues[i + 1]
+                        
+                        sigma = float(np.real(p))  # Real part (σ)
+                        omega = float(np.imag(p))  # Imaginary part (ω)
+                        alpha = float(np.real(r))  # Residue real part
+                        beta = float(np.imag(r))   # Residue imaginary part
+                        
+                        # Create 2x2 A block: [[σ, ω], [-ω, σ]]
+                        A_blocks.append([[sigma, omega],
+                                         [-omega, sigma]])
+                        
+                        # Create B block: [[2], [0]]
+                        B_blocks.append([[2.0], [0.0]])
+                        
+                        # Create C block: [[α, -β]]
+                        C_blocks.append([alpha, -beta])
+                        
+                        found_pair = True
+                        i += 2  # Skip both poles in the pair
+                
+                if not found_pair:
+                    # Isolated complex pole (shouldn't happen for real systems)
+                    # Convert to 2x2 real form
+                    sigma = float(np.real(p))
+                    omega = float(np.imag(p))
+                    alpha = float(np.real(r))
+                    beta = float(np.imag(r))
+                    
+                    A_blocks.append([[sigma, omega],
+                                     [-omega, sigma]])
+                    B_blocks.append([[2.0], [0.0]])
+                    C_blocks.append([alpha, -beta])
+                    
+                    i += 1
+            else:
+                # Real pole p with real residue r
+                A_blocks.append([[float(p)]])
+                B_blocks.append([[1.0]])
+                C_blocks.append([float(r)])
+                
+                i += 1
         
-        # B matrix: column vector of ones
-        B = []
-        for i in range(n):
-            B.append([{'real': 1.0, 'imag': 0.0}])
+        # Construct full matrices by combining blocks
+        # Calculate total size
+        total_size = sum(len(block) for block in A_blocks)
         
-        # C matrix: row vector of residues
-        C = [[]]
-        for r in self.residues:
-            C[0].append({'real': float(r.real), 'imag': float(r.imag)})
+        # Initialize matrices with zeros (plain floats, not dicts)
+        A = [[0.0 for _ in range(total_size)] for _ in range(total_size)]
+        B = [[0.0] for _ in range(total_size)]
+        C = [[0.0 for _ in range(total_size)]]
         
-        # D matrix
-        D = [[{'real': float(self.d), 'imag': 0.0}]]
+        # Fill in the blocks
+        idx = 0
+        for a_block, b_block, c_row in zip(A_blocks, B_blocks, C_blocks):
+            block_size = len(a_block)
+            
+            # Fill A block
+            for row_i in range(block_size):
+                for col_j in range(block_size):
+                    A[idx + row_i][idx + col_j] = a_block[row_i][col_j]
+            
+            # Fill B block
+            for row_i in range(block_size):
+                B[idx + row_i][0] = b_block[row_i][0]
+            
+            # Fill C block
+            for col_j in range(block_size):
+                C[0][idx + col_j] = c_row[col_j]
+            
+            idx += block_size
         
-        # E matrix (proportional term)
-        E = [[{'real': float(self.e), 'imag': 0.0}]]
+        # D and E are scalar (plain floats)
+        D = [[float(self.d)]]
+        E = [[float(self.e)]]
         
         return {
             'A': A,
@@ -180,7 +256,7 @@ class VectorFittingPY:
             'C': C,
             'D': D,
             'E': E,
-            'order': n,
+            'order': total_size,
             'fs': fs
         }
     
@@ -193,26 +269,36 @@ class VectorFittingPY:
             'dimensions': {}
         }
         
-        def to_complex_array(data):
-            """Convert list of dicts to numpy complex array."""
+        def to_numpy_array(data):
+            """Convert list to numpy array (handles both real numbers and legacy dict format)."""
             if isinstance(data, list):
                 if len(data) == 0:
                     return np.array([])
+                # Check if it's the new format (plain floats) or old format (dicts)
                 if isinstance(data[0], dict):
+                    # Legacy format: [{'real': x, 'imag': y}, ...]
                     return np.array([d['real'] + 1j*d['imag'] for d in data])
                 elif isinstance(data[0], list):
                     rows = []
                     for row in data:
-                        row_vals = [d['real'] + 1j*d['imag'] for d in row]
+                        if isinstance(row[0], dict):
+                            # Legacy format row
+                            row_vals = [d['real'] + 1j*d['imag'] for d in row]
+                        else:
+                            # New format row (plain floats)
+                            row_vals = [float(v) for v in row]
                         rows.append(row_vals)
                     return np.array(rows)
+                else:
+                    # 1D list of plain floats
+                    return np.array([float(v) for v in data])
             return np.array(data)
         
-        A = to_complex_array(state_space['A'])
-        B = to_complex_array(state_space['B'])
-        C = to_complex_array(state_space['C'])
-        D = to_complex_array(state_space['D'])
-        E = to_complex_array(state_space['E'])
+        A = to_numpy_array(state_space['A'])
+        B = to_numpy_array(state_space['B'])
+        C = to_numpy_array(state_space['C'])
+        D = to_numpy_array(state_space['D'])
+        E = to_numpy_array(state_space['E'])
         
         n = A.shape[0]
         results['dimensions'] = {
