@@ -16496,7 +16496,7 @@
     "crosstalk": []
   },
   "metadata": {
-    "source_file": "/Users/liuyizhe/Developer/systemCprojects/peters_01_0605_B12_thru.s4p",
+    "source_file": "./peters_01_0605_B12_thru.s4p",
     "n_ports": 4,
     "freq_min_hz": 50000000.0,
     "freq_max_hz": 15000000000.0
