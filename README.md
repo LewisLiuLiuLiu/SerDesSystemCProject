@@ -1,4 +1,4 @@
-# SerDes SystemC-AMS Behavioral Modeling Platform
+# SerDes - High-Speed Serial Link Simulator (SystemC-AMS)
 
 [![C++](https://img.shields.io/badge/C++-11-blue.svg)](https://isocpp.org/)
 [![SystemC-AMS](https://img.shields.io/badge/SystemC--AMS-2.3.4-orange.svg)](https://accellera.org/community/systemc-ams)
@@ -6,7 +6,9 @@
 [![Python](https://img.shields.io/badge/Python-3.8+-yellow.svg)](https://www.python.org/)
 
 🌐 **Languages**: [English](README.md) | [中文](README_ZH.md)
+> **SerDes** (Serializer/Deserializer) behavioral modeling platform for high-speed serial link simulation. Supports **PCIe**, **USB**, **Ethernet**, **SATA** and other high-speed interfaces. Built with **SystemC-AMS** TDF methodology for accurate analog/mixed-signal modeling.
 
+**Keywords:** `serdes` `serializer-deserializer` `high-speed-link` `systemc-ams` `signal-integrity` `eye-diagram` `channel-simulation` `tx-rx` `equalization` `cdr` `ctle` `dfe` `ffe` `prbs` `jitter` `ber` `mixed-signal` `behavioral-modeling` `ams-simulation`
 A high-speed serial link (SerDes) behavioral modeling and simulation platform based on **SystemC-AMS**, supporting complete signal chain simulation from TX → Channel → RX, including PRBS generation, jitter injection, equalization, clock recovery, and Python eye diagram analysis.
 
 ---

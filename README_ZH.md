@@ -1,4 +1,4 @@
-# SerDes SystemC-AMS Behavioral Modeling Platform
+# SerDes 高速串行链路仿真器 (SystemC-AMS)
 
 [![C++](https://img.shields.io/badge/C++-11-blue.svg)](https://isocpp.org/)
 [![SystemC-AMS](https://img.shields.io/badge/SystemC--AMS-2.3.4-orange.svg)](https://accellera.org/community/systemc-ams)
