@@ -120,11 +120,26 @@ void DfeAdaptTdf::processing()
     double d_raw = data_in.read();            // Main sampler output (0 or 1)
     double s_pos_raw = vref_pos_in.read();    // +Vref comparator output (0 or 1)
     double s_neg_raw = vref_neg_in.read();    // -Vref comparator output (0 or 1)
-    bool trigger = sampling_trigger.read();
+    // Note: trigger is now generated internally (see Step 1b)
 
     // Read DE control inputs
     int current_mode = static_cast<int>(mode_de.read());
     bool reset = static_cast<bool>(reset_de.read());
+    
+    // ========================================================================
+    // Step 1b: Generate internal trigger based on time (not external signal)
+    // This avoids cluster synchronization issues between CDR and DFE adaptation
+    // ========================================================================
+    static double last_ui_time = -1.0;
+    double current_time = get_time().to_seconds();
+    double ui_seconds = 100e-12;  // 100 ps for 10 Gbps (should be from config)
+    double current_ui = std::floor(current_time / ui_seconds);
+    
+    bool trigger = false;
+    if (current_ui > last_ui_time) {
+        trigger = true;
+        last_ui_time = current_ui;
+    }
 
     // ========================================================================
     // Step 2: Handle reset
@@ -263,6 +278,8 @@ void DfeAdaptTdf::update_taps(double sign_e)
 
     for (int i = 0; i < m_num_taps; ++i) {
         // Sign-Sign LMS: c[n] -= mu * sign(e) * d[k-n]
+        // When sign_e = +1 (error positive, need to increase output), 
+        // we decrease tap to reduce feedback (since v_eq = v_main - v_fb)
         double update = m_current_mu * sign_e * sign_fn(m_history[i]);
 
         // Apply leakage

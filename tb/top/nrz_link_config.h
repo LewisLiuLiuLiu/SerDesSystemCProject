@@ -194,9 +194,9 @@ struct NrzLinkConfig {
         rx.vga.noise_enable = false;
         
         // ====== RX DFE Summer ======
-        rx.dfe_summer.tap_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};  // 5 taps, all from DfeAdaptTdf
+        rx.dfe_summer.tap_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};  // Initial taps, will be updated by adaptation
         rx.dfe_summer.vcm_out = 0.0;
-        rx.dfe_summer.vtap = 1.0;
+        rx.dfe_summer.vtap = 0.05;  // 50mV per tap - reasonable for DFE feedback
         rx.dfe_summer.map_mode = "pm1";
         rx.dfe_summer.enable = true;
         rx.dfe_summer.sat_enable = false;
@@ -234,13 +234,21 @@ struct NrzLinkConfig {
         adaption.dfe.enabled = true;
         adaption.dfe.num_taps = 5;
         adaption.dfe.algorithm = "sign-lms";
-        adaption.dfe.mu = 1e-4;
-        adaption.dfe.initial_taps = {0.0, 0.0, 0.0, 0.0, 0.0};
-        adaption.dfe.stats_period = 1024;
+        adaption.dfe.mu = 1e-5;
+        adaption.dfe.mu_startup = 0.00001;   // Reduced from 0.0001 for finer convergence
+        adaption.dfe.mu_acquire = 0.000001;  // Reduced from 0.00001
+        adaption.dfe.mu_track = 0.0000001;   // Reduced from 0.000001
+        adaption.dfe.leakage = 1e-6;         // Reset to default
+        adaption.dfe.tap_min = -1.0;
+        adaption.dfe.tap_max = 1.0;
+        // FIX: Tap 1 should be the largest (compensates most recent ISI)
+        // Typical DFE tap profile: exponential decay
+        adaption.dfe.initial_taps = {0.30, 0.15, 0.08, 0.04, 0.02};  // Tap1 largest!
+        adaption.dfe.stats_period = 4096;   // Increased from 2048 for better statistics
 
         adaption.vref_adapt.enabled = false;
-        adaption.vref_adapt.vref_pos = 0.15;
-        adaption.vref_adapt.vref_neg = -0.15;
+        adaption.vref_adapt.vref_pos = 0.35;  // ~50% of VGA output amplitude (±0.72V)
+        adaption.vref_adapt.vref_neg = -0.35;
 
         adaption.cdr_pi.enabled = true;
         adaption.cdr_pi.kp = 0.01;

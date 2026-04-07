@@ -25,6 +25,8 @@ RxDfeSummerTdf::RxDfeSummerTdf(sc_core::sc_module_name nm,
     , m_params(params)
     , m_last_feedback(0.0)
     , m_de_ports_connected(false)
+    , m_last_bit(-1.0)
+    , m_de_taps_initialized(false)
 {
     // 初始化抽头系数
     m_tap_coeffs = m_params.tap_coeffs;
@@ -155,38 +157,64 @@ void RxDfeSummerTdf::update_history(double new_bit)
 void RxDfeSummerTdf::read_de_tap_updates()
 {
     // 尝试从 DE 端口读取抽头更新
-    // 注意：只有当端口被连接时才读取
+    // 注意：只有当端口被连接且值有效时才读取
     // SystemC-AMS 的 sca_de 端口在未连接时会返回默认值
     
-    // 读取各抽头更新（如果有变化则更新）
+    // 读取各抽头更新（只有当值非零且有限时才更新）
+    // 使用m_de_taps_initialized标志来区分"初始零值"和"DE端口返回的零值"
     if (m_tap_coeffs.size() >= 1) {
         double tap1_val = tap1_de.read();
         if (std::isfinite(tap1_val)) {
-            m_tap_coeffs[0] = tap1_val;
+            if (!m_de_taps_initialized && tap1_val != 0.0) {
+                m_de_taps_initialized = true;
+            }
+            if (m_de_taps_initialized) {
+                m_tap_coeffs[0] = tap1_val;
+            }
         }
     }
     if (m_tap_coeffs.size() >= 2) {
         double tap2_val = tap2_de.read();
         if (std::isfinite(tap2_val)) {
-            m_tap_coeffs[1] = tap2_val;
+            if (!m_de_taps_initialized && tap2_val != 0.0) {
+                m_de_taps_initialized = true;
+            }
+            if (m_de_taps_initialized) {
+                m_tap_coeffs[1] = tap2_val;
+            }
         }
     }
     if (m_tap_coeffs.size() >= 3) {
         double tap3_val = tap3_de.read();
         if (std::isfinite(tap3_val)) {
-            m_tap_coeffs[2] = tap3_val;
+            if (!m_de_taps_initialized && tap3_val != 0.0) {
+                m_de_taps_initialized = true;
+            }
+            if (m_de_taps_initialized) {
+                m_tap_coeffs[2] = tap3_val;
+            }
         }
     }
     if (m_tap_coeffs.size() >= 4) {
         double tap4_val = tap4_de.read();
         if (std::isfinite(tap4_val)) {
-            m_tap_coeffs[3] = tap4_val;
+            if (!m_de_taps_initialized && tap4_val != 0.0) {
+                m_de_taps_initialized = true;
+            }
+            if (m_de_taps_initialized) {
+                m_tap_coeffs[3] = tap4_val;
+            }
         }
     }
     if (m_tap_coeffs.size() >= 5) {
         double tap5_val = tap5_de.read();
         if (std::isfinite(tap5_val)) {
-            m_tap_coeffs[4] = tap5_val;
+            if (!m_de_taps_initialized && tap5_val != 0.0) {
+                m_de_taps_initialized = true;
+            }
+            if (m_de_taps_initialized) {
+                m_tap_coeffs[4] = tap5_val;
+            }
         }
     }
 }

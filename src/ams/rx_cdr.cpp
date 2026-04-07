@@ -227,7 +227,8 @@ void RxCdrTdf::processing()
     // ========================================================================
     // Step 6: Output
     // ========================================================================
-    phase_out.write(quantized_phase);
+    // Output the actual phase (not quantized) for better visualization
+    phase_out.write(m_phase);
     sampling_trigger.write(trigger);
 }
 

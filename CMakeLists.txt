@@ -55,8 +55,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     endif()
 endif()
 
-# Set C++ standard globally - must match SystemC library
-set(CMAKE_CXX_STANDARD 14)
+# Set C++ standard globally - platform adaptive
+# Ubuntu: C++14 + GCC
+# macOS: C++11 + Clang (to match precompiled SystemC library)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_CXX_STANDARD 11)
+    message(STATUS "Platform: macOS -> Using C++11 (matches SystemC library)")
+else()
+    set(CMAKE_CXX_STANDARD 14)
+    message(STATUS "Platform: ${CMAKE_HOST_SYSTEM_NAME} -> Using C++14")
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Add cmake modules path
