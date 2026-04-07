@@ -98,6 +98,8 @@ private:
     std::vector<double> m_history_bits;   ///< 历史判决缓冲区
     double m_last_feedback;               ///< 上一次反馈电压（调试用）
     bool m_de_ports_connected;            ///< DE端口是否连接标志
+    double m_last_bit;                    ///< 上一个UI的判决值（用于检测新采样）
+    bool m_de_taps_initialized;           ///< 是否已从DE端口接收到有效抽头值
     
     // ========================================================================
     // 内部方法
