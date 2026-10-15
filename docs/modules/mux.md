@@ -65,7 +65,7 @@ This module adopts an ideal selector model, abstracting the complex topology of 
 The Mux is a significant jitter source in the SerDes transmitter. The behavioral model needs to capture the following effects:
 
 - **Deterministic Jitter (DJ)** sources:
-  - **Duty Cycle Distortion (DCD)**: Clock duty cycle deviation from 50% causes unequal adjacent UI widths. DCD-induced peak-to-peak jitter = `DJ_DCD = UI × |DCD% - 50%|`. For example, a 48% duty cycle (2% deviation) produces 0.32ps jitter at 16ps UI.
+  - **Duty Cycle Distortion (DCD)**: Clock duty cycle deviation from 50% causes unequal adjacent UI widths. DCD-induced peak-to-peak jitter = `DJ_DCD = 2 × |DCD% - 50%| / 100 × UI` (odd/even transitions alternately displaced by ±(|DCD% - 50%| / 100) × UI). For example, a 48% duty cycle (2% deviation) produces 0.64ps peak-to-peak jitter at 16ps UI (±0.32ps per edge).
   - **Pattern-Dependent Jitter (PDJ)**: Selector propagation delay varies with input data patterns, which can be modeled by injecting different delay offsets for different patterns.
   
 - **Random Jitter (RJ)** sources:
@@ -209,7 +209,7 @@ The following parameters are **not yet implemented** in the current code and ser
 
 **Duty Cycle Distortion (DCD) Modeling**:
 - **Physical Background**: Clock duty cycle deviation from 50% causes unequal adjacent UI (Unit Interval) widths, introducing edge position offset
-- **Typical Impact**: For a system with UI=16ps, duty cycle deviating from 50% to 48% (2% deviation), produces approximately 0.3-0.6ps deterministic jitter at edges
+- **Typical Impact**: For a system with UI=16ps, duty cycle deviating from 50% to 48% (2% deviation), produces 0.64ps peak-to-peak deterministic jitter on the edges (±0.32ps alternating edge displacement)
 - **Implementation Method Suggestions**:
   - Apply opposite direction time offsets to odd and even UIs
   - Implement fractional sample delay through interpolation techniques (such as Lagrange or Sinc interpolation)

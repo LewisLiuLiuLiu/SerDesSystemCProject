@@ -740,7 +740,7 @@ Monitor Driver output, if approaching saturation reduce FFE coefficient amplitud
 **DCD (Duty Cycle Distortion)**:
 - Physical source: Clock duty cycle ≠ 50%
 - Impact: Odd/even UI widths unequal, produces deterministic jitter
-- Modeling: Apply ±DCD/2 time offset to odd/even symbols in WaveGen
+- Modeling: Apply alternating ±(|DCD% - 50%| / 100) × UI time offsets to odd/even symbols in WaveGen
 
 **RJ (Random Jitter)**:
 - Physical source: PLL phase noise, thermal noise
