@@ -1,6 +1,10 @@
 /**
  * @file test_adaption_freeze_mechanism.cpp
- * @brief Unit test for AdaptionDe - Freeze Mechanism
+ * @brief Unit test for AdaptionDe - Freeze mechanism (disabled gate)
+ * 
+ * NOTE (2026-10): the freeze trigger is now amplitude/phase anomaly based
+ * (error-count bursts are no longer wired into AdaptionDe). This test verifies
+ * that freeze_on_error=false keeps the module unfrozen even under an anomaly.
  */
 
 #include "adaption_test_common.h"
@@ -8,36 +12,32 @@
 using namespace serdes;
 using namespace serdes::test;
 
-TEST(AdaptionFreezeTest, FreezeMechanism) {
+TEST(AdaptionFreezeTest, FreezeDisabledGate) {
     AdaptionParams params;
     params.agc.enabled = true;
-    params.dfe.enabled = true;
-    params.threshold.enabled = true;
+    params.dfe.enabled = false;
+    params.vref_adapt.enabled = false;
     params.cdr_pi.enabled = true;
-    params.safety.freeze_on_error = false;  // Start with freeze disabled
-    params.safety.error_burst_threshold = 100;
-    params.fast_update_period = 1e-8;  // 10 ns for fast freeze detection
+    params.safety.freeze_on_error = false;  // Freeze disabled
+    params.fast_update_period = 1e-8;
     
     AdaptionBasicTestbench* tb = new AdaptionBasicTestbench("tb", params);
     
-    // Set normal operating conditions first
-    tb->src->set_error_count(10);    // Normal error count
-    tb->src->set_amplitude(0.3);     // Valid amplitude
-    tb->src->set_phase_error(1e-11); // Valid phase error (10 ps)
+    // Normal operating conditions
+    tb->src->set_amplitude(0.3);
+    tb->src->set_phase_error(1e-11);  // 10 ps, valid
     
-    // Wait for system to stabilize with freeze disabled
+    // Wait for system to stabilize
     sc_core::sc_start(200, sc_core::SC_NS);
     
     // Verify not frozen in normal conditions
     EXPECT_FALSE(tb->get_freeze_flag()) << "Should not be frozen with normal conditions";
     
-    // Now test freeze trigger: inject error burst
-    tb->src->set_error_count(150);  // Above threshold of 100
-    sc_core::sc_start(100, sc_core::SC_NS);  // Run a bit longer
+    // Inject an amplitude anomaly (outside [0.01, 2.0])
+    tb->src->set_amplitude(2.5);
+    sc_core::sc_start(200, sc_core::SC_NS);
     
-    // Check freeze behavior
-    // Note: With freeze_on_error=false, should still not be frozen
-    // This test verifies the mechanism doesn't crash and baseline behavior works
+    // With freeze_on_error=false, must still not be frozen
     EXPECT_FALSE(tb->get_freeze_flag()) << "Should not freeze when freeze_on_error=false";
     
     // Clean up

@@ -12,7 +12,7 @@ TEST(AdaptionCdrTest, CdrPiConvergence) {
     AdaptionParams params;
     params.agc.enabled = false;
     params.dfe.enabled = false;
-    params.threshold.enabled = false;
+    params.vref_adapt.enabled = false;
     params.cdr_pi.enabled = true;
     params.cdr_pi.kp = 0.01;
     params.cdr_pi.ki = 1e-4;

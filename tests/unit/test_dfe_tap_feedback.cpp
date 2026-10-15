@@ -123,241 +123,122 @@ SC_MODULE(DfeTapTestbench) {
 // ============================================================================
 
 /**
- * @brief Test positive tap coefficient effect
- * 
- * With positive tap, feedback adds to the output
- * y = x - tap * history
- * If tap > 0, then y < x when history > 0
+ * @brief 全部抽头反馈场景（SystemC 每进程仅允许一次精化：统一构建 → 单次 sc_start → 分场景断言）
  */
-TEST(RxDfeTapFeedbackTest, PositiveTapEffect) {
-    RxDfeParams params;
-    params.taps = {0.2};  // Positive tap
+TEST(RxDfeTapFeedbackTest, SimulationScenarios) {
+    const std::vector<double> pulse5 = {1.0, 0.0, 0.0, 0.0, 0.0};
+    const std::vector<double> seq8 = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    const std::vector<double> seq7 = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    const std::vector<double> input_p = {0.4, 0.3, -0.2, 0.1};
+    const std::vector<double> seq3 = {1.0, 0.0, 0.0};
+    const std::vector<double> seq_alt = {1.0, -1.0, 1.0, -1.0, 1.0, -1.0};
+    const std::vector<double> seq_zero = {0.5, -0.3, 0.8, -0.1, 0.6};
     
-    // Pulse input: 1, 0, 0, 0, ...
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0};
+    // --- 构建所有场景（模块名唯一化） ---
+    RxDfeParams p_pos;    p_pos.taps = {0.2};              // 正抽头
+    DfeTapTestbench* tb_pos = new DfeTapTestbench("tb_pos", p_pos, pulse5);
     
-    DfeTapTestbench* tb = new DfeTapTestbench("tb", params, input_seq);
+    RxDfeParams p_neg;    p_neg.taps = {-0.2};             // 负抽头
+    DfeTapTestbench* tb_neg = new DfeTapTestbench("tb_neg", p_neg, pulse5);
     
-    sc_core::sc_start(60, sc_core::SC_PS);
+    RxDfeParams p_small;  p_small.taps = {-0.1};           // 小抽头（慢衰减）
+    DfeTapTestbench* tb_small = new DfeTapTestbench("tb_small", p_small, seq8);
     
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 4u);
+    RxDfeParams p_multi;  p_multi.taps = {-0.3, -0.2, -0.1};  // 多抽头
+    DfeTapTestbench* tb_multi = new DfeTapTestbench("tb_multi", p_multi, seq7);
     
-    // y[0] = 1.0 - 0 = 1.0
-    // y[1] = 0.0 - 0.2 * 1.0 = -0.2  (positive tap causes negative feedback)
-    // y[2] = 0.0 - 0.2 * (-0.2) = 0.04
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], -0.2, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.04, 1e-10);
+    RxDfeParams p_p;      p_p.taps = {-0.15, -0.08, -0.04};   // P 路
+    DfeTapTestbench* tb_p = new DfeTapTestbench("tb_p", p_p, input_p);
     
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test negative tap coefficient effect
- * 
- * With negative tap, feedback subtracts from the output
- * y = x - tap * history
- * If tap < 0, then y > x when history > 0
- */
-TEST(RxDfeTapFeedbackTest, NegativeTapEffect) {
-    RxDfeParams params;
-    params.taps = {-0.2};  // Negative tap
+    RxDfeParams p_tiny;   p_tiny.taps = {-0.001};          // 边界小抽头
+    DfeTapTestbench* tb_tiny = new DfeTapTestbench("tb_tiny", p_tiny, seq3);
     
-    // Pulse input: 1, 0, 0, 0, ...
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0};
+    RxDfeParams p_alt;    p_alt.taps = {-0.1};             // 交替输入
+    DfeTapTestbench* tb_alt = new DfeTapTestbench("tb_alt", p_alt, seq_alt);
     
-    DfeTapTestbench* tb = new DfeTapTestbench("tb", params, input_seq);
+    RxDfeParams p_zero;   p_zero.taps = {0.0};             // 零抽头直通
+    DfeTapTestbench* tb_zero = new DfeTapTestbench("tb_zero", p_zero, seq_zero);
     
-    sc_core::sc_start(60, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 4u);
-    
-    // y[0] = 1.0 - 0 = 1.0
-    // y[1] = 0.0 - (-0.2) * 1.0 = 0.2  (negative tap causes positive feedback)
-    // y[2] = 0.0 - (-0.2) * 0.2 = 0.04
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], 0.2, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.04, 1e-10);
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test tap magnitude effect on convergence speed
- */
-TEST(RxDfeTapFeedbackTest, TapMagnitudeEffect) {
-    // Small tap - slower decay
-    RxDfeParams params_small;
-    params_small.taps = {-0.1};
-    
-    // Large tap - faster decay
-    RxDfeParams params_large;
-    params_large.taps = {-0.5};
-    
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    
-    DfeTapTestbench* tb_small = new DfeTapTestbench("tb_small", params_small, input_seq);
-    
+    // --- 单次统一推进（覆盖最长场景 100 ps） ---
     sc_core::sc_start(100, sc_core::SC_PS);
-    const auto& outputs_small = tb_small->get_outputs();
-    sc_core::sc_stop();
     
-    // After first sample, larger tap should cause faster convergence to zero
-    // For small tap: y[1] = 0.1, y[2] = 0.01
-    // For large tap: y[1] = 0.5, y[2] = 0.25
-    ASSERT_GE(outputs_small.size(), 3u);
-    EXPECT_NEAR(outputs_small[1], 0.1, 1e-10);
-    EXPECT_NEAR(outputs_small[2], 0.01, 1e-10);
-}
-
-/**
- * @brief Test multi-tap interaction
- */
-TEST(RxDfeTapFeedbackTest, MultiTapInteraction) {
-    RxDfeParams params;
-    params.taps = {-0.3, -0.2, -0.1};  // 3 taps
-    
-    // Pulse input
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    
-    DfeTapTestbench* tb = new DfeTapTestbench("tb", params, input_seq);
-    
-    sc_core::sc_start(80, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 5u);
-    
-    // Manual verification:
-    // y[0] = 1.0
-    // y[1] = 0 - (-0.3)*1.0 - (-0.2)*0 - (-0.1)*0 = 0.3
-    // y[2] = 0 - (-0.3)*0.3 - (-0.2)*1.0 - (-0.1)*0 = 0.09 + 0.2 = 0.29
-    // y[3] = 0 - (-0.3)*0.29 - (-0.2)*0.3 - (-0.1)*1.0 = 0.087 + 0.06 + 0.1 = 0.247
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], 0.3, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.29, 1e-10);
-    EXPECT_NEAR(outputs[3], 0.247, 1e-10);
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test different tap configurations for P and N paths
- */
-TEST(RxDfeTapFeedbackTest, DifferentialPathTaps) {
-    // P path: typical DFE taps (negative to cancel post-cursor ISI)
-    RxDfeParams params_p;
-    params_p.taps = {-0.15, -0.08, -0.04};
-    
-    // N path: negated taps for differential symmetry
-    RxDfeParams params_n;
-    params_n.taps = {0.15, 0.08, 0.04};
-    
-    std::vector<double> input_p = {0.4, 0.3, -0.2, 0.1};
-    std::vector<double> input_n = {-0.4, -0.3, 0.2, -0.1};  // Inverted input
-    
-    DfeTapTestbench* tb_p = new DfeTapTestbench("tb_p", params_p, input_p);
-    
-    sc_core::sc_start(50, sc_core::SC_PS);
-    const auto& out_p = tb_p->get_outputs();
-    sc_core::sc_stop();
-    
-    // Verify P and N taps are properly negated
-    for (size_t i = 0; i < params_p.taps.size(); ++i) {
-        EXPECT_NEAR(params_n.taps[i], -params_p.taps[i], 1e-15)
-            << "N path tap should be negated at index " << i;
+    // --- 正抽头：y[1] 为负反馈 ---
+    {
+        const auto& outputs = tb_pos->get_outputs();
+        ASSERT_GE(outputs.size(), 4u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], -0.2, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.04, 1e-10);
     }
     
-    // Verify first output is just the input (no history)
-    ASSERT_GE(out_p.size(), 1u);
-    EXPECT_NEAR(out_p[0], 0.4, 1e-10);
-}
-
-/**
- * @brief Test tap coefficient boundary values
- */
-TEST(RxDfeTapFeedbackTest, TapBoundaryValues) {
-    // Test with very small tap
-    RxDfeParams params_tiny;
-    params_tiny.taps = {-0.001};
+    // --- 负抽头：y[1] 为正反馈 ---
+    {
+        const auto& outputs = tb_neg->get_outputs();
+        ASSERT_GE(outputs.size(), 4u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], 0.2, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.04, 1e-10);
+    }
     
-    std::vector<double> input_seq = {1.0, 0.0, 0.0};
-    DfeTapTestbench* tb_tiny = new DfeTapTestbench("tb_tiny", params_tiny, input_seq);
+    // --- 抽头幅度影响衰减速度（小抽头） ---
+    {
+        const auto& outputs = tb_small->get_outputs();
+        ASSERT_GE(outputs.size(), 3u);
+        EXPECT_NEAR(outputs[1], 0.1, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.01, 1e-10);
+    }
     
-    sc_core::sc_start(40, sc_core::SC_PS);
-    const auto& out_tiny = tb_tiny->get_outputs();
-    sc_core::sc_stop();
+    // --- 多抽头交互 ---
+    {
+        const auto& outputs = tb_multi->get_outputs();
+        ASSERT_GE(outputs.size(), 5u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], 0.3, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.29, 1e-10);
+        EXPECT_NEAR(outputs[3], 0.247, 1e-10);
+    }
     
-    ASSERT_GE(out_tiny.size(), 2u);
-    // Very small tap should have minimal effect
-    EXPECT_NEAR(out_tiny[1], 0.001, 1e-10);
-}
-
-/**
- * @brief Test alternating input with DFE feedback
- */
-TEST(RxDfeTapFeedbackTest, AlternatingInput) {
-    RxDfeParams params;
-    params.taps = {-0.1};
+    // --- 差分 P/N 抽头一致性 + 首样本直通 ---
+    {
+        RxDfeParams params_n;
+        params_n.taps = {0.15, 0.08, 0.04};
+        for (size_t i = 0; i < p_p.taps.size(); ++i) {
+            EXPECT_NEAR(params_n.taps[i], -p_p.taps[i], 1e-15)
+                << "N path tap should be negated at index " << i;
+        }
+        const auto& outputs = tb_p->get_outputs();
+        ASSERT_GE(outputs.size(), 1u);
+        EXPECT_NEAR(outputs[0], 0.4, 1e-10);
+    }
     
-    // Alternating input: 1, -1, 1, -1, ...
-    std::vector<double> input_seq = {1.0, -1.0, 1.0, -1.0, 1.0, -1.0};
+    // --- 边界小抽头 ---
+    {
+        const auto& outputs = tb_tiny->get_outputs();
+        ASSERT_GE(outputs.size(), 2u);
+        EXPECT_NEAR(outputs[1], 0.001, 1e-10);
+    }
     
-    DfeTapTestbench* tb = new DfeTapTestbench("tb", params, input_seq);
+    // --- 交替输入 ---
+    {
+        const auto& outputs = tb_alt->get_outputs();
+        ASSERT_GE(outputs.size(), 5u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], -0.9, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.91, 1e-10);
+        EXPECT_NEAR(outputs[3], -0.909, 1e-10);
+    }
     
-    sc_core::sc_start(70, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 5u);
-    
-    // y[0] = 1.0
-    // y[1] = -1.0 - (-0.1)*1.0 = -1.0 + 0.1 = -0.9
-    // y[2] = 1.0 - (-0.1)*(-0.9) = 1.0 - 0.09 = 0.91
-    // y[3] = -1.0 - (-0.1)*0.91 = -1.0 + 0.091 = -0.909
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], -0.9, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.91, 1e-10);
-    EXPECT_NEAR(outputs[3], -0.909, 1e-10);
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test zero tap (should act as passthrough)
- */
-TEST(RxDfeTapFeedbackTest, ZeroTapPassthrough) {
-    RxDfeParams params;
-    params.taps = {0.0};  // Zero tap
-    
-    std::vector<double> input_seq = {0.5, -0.3, 0.8, -0.1, 0.6};
-    
-    DfeTapTestbench* tb = new DfeTapTestbench("tb", params, input_seq);
-    
-    sc_core::sc_start(60, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 5u);
-    
-    // With zero tap, output should equal input
-    for (size_t i = 0; i < input_seq.size(); ++i) {
-        EXPECT_NEAR(outputs[i], input_seq[i], 1e-10)
-            << "Zero tap should act as passthrough at index " << i;
+    // --- 零抽头直通 ---
+    {
+        const auto& outputs = tb_zero->get_outputs();
+        ASSERT_GE(outputs.size(), 5u);
+        for (size_t i = 0; i < seq_zero.size(); ++i) {
+            EXPECT_NEAR(outputs[i], seq_zero[i], 1e-10)
+                << "Zero tap should act as passthrough at index " << i;
+        }
     }
     
     sc_core::sc_stop();
 }
 
-// ============================================================================
-// Main Function
-// ============================================================================
-
-int sc_main(int argc, char* argv[]) {
-    sc_core::sc_report_handler::set_actions(
-        "/IEEE_Std_1666/deprecated",
-        sc_core::SC_DO_NOTHING
-    );
-    
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
+// sc_main 由 tests/test_main.cpp 统一提供（GTest 入口）

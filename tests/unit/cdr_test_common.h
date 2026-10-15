@@ -58,6 +58,7 @@ SC_MODULE(CdrBasicTestbench) {
 
     sca_tdf::sca_signal<double> sig_data;
     sca_tdf::sca_signal<double> sig_phase;
+    sca_tdf::sca_signal<bool> sig_trigger;  // CDR sampling_trigger 输出（本测试不使用触发）
 
     CdrParams params;
 
@@ -71,6 +72,7 @@ SC_MODULE(CdrBasicTestbench) {
         src->out(sig_data);
         cdr->in(sig_data);
         cdr->phase_out(sig_phase);
+        cdr->sampling_trigger(sig_trigger);
     }
 
     ~CdrBasicTestbench() {

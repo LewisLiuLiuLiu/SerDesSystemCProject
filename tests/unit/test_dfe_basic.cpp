@@ -220,188 +220,105 @@ TEST(RxDfeBasicTest, PortConnection) {
 }
 
 /**
- * @brief Test zero input produces zero output (with zero history)
+ * @brief 全部仿真场景（SystemC 每进程仅允许一次精化：统一构建 → 单次 sc_start → 分场景断言）
  */
-TEST(RxDfeBasicTest, ZeroInputZeroOutput) {
-    RxDfeParams params;
-    params.taps = {-0.1, -0.05, 0.02};  // 3 taps
+TEST(RxDfeBasicTest, SimulationScenarios) {
+    // --- 构建所有场景（模块名唯一化） ---
+    RxDfeParams p_zero;
+    p_zero.taps = {-0.1, -0.05, 0.02};  // 3 taps
+    DfeBasicTestbench* tb_zero = new DfeBasicTestbench("tb_zero", p_zero, 0.0);
     
-    DfeBasicTestbench* tb = new DfeBasicTestbench("tb", params, 0.0);
+    RxDfeParams p_const;
+    p_const.taps = {-0.1, -0.05};  // 2 taps, sum = -0.15
+    DfeBasicTestbench* tb_const = new DfeBasicTestbench("tb_const", p_const, 0.5);
     
-    // Run short simulation
-    sc_core::sc_start(100, sc_core::SC_PS);  // 10 samples
+    RxDfeParams p_single;
+    p_single.taps = {-0.2};  // Single tap
+    std::vector<double> seq_single = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    DfeSequenceTestbench* tb_single = new DfeSequenceTestbench("tb_single", p_single, seq_single);
     
-    // With zero input and zero history, output should be zero
-    const auto& samples = tb->get_samples();
-    ASSERT_GT(samples.size(), 0u);
+    RxDfeParams p_multi;
+    p_multi.taps = {-0.1, -0.05};  // Two taps
+    std::vector<double> seq_multi = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    DfeSequenceTestbench* tb_multi = new DfeSequenceTestbench("tb_multi", p_multi, seq_multi);
     
-    for (const auto& s : samples) {
-        EXPECT_NEAR(s, 0.0, 1e-12) << "Zero input should produce zero output";
+    RxDfeParams p_empty;
+    p_empty.taps = {};  // No taps - passthrough
+    std::vector<double> seq_passthrough = {0.5, -0.3, 0.8, -0.1};
+    DfeSequenceTestbench* tb_empty = new DfeSequenceTestbench("tb_empty", p_empty, seq_passthrough);
+    
+    RxDfeParams p_neg;
+    p_neg.taps = {0.1, 0.05, -0.02};  // N path: negated taps
+    std::vector<double> seq_neg = {0.5, 0.3, -0.2, 0.4};
+    DfeSequenceTestbench* tb_neg = new DfeSequenceTestbench("tb_neg", p_neg, seq_neg);
+    
+    // --- 单次统一推进（覆盖最长场景 500 ps） ---
+    sc_core::sc_start(500, sc_core::SC_PS);
+    
+    // --- 场景 1：零输入零输出（零历史） ---
+    {
+        const auto& samples = tb_zero->get_samples();
+        ASSERT_GT(samples.size(), 0u);
+        for (const auto& s : samples) {
+            EXPECT_NEAR(s, 0.0, 1e-12) << "Zero input should produce zero output";
+        }
+    }
+    
+    // --- 场景 2：恒定输入稳态 y_ss = x / (1 + sum(taps)) ---
+    {
+        const auto& samples = tb_const->get_samples();
+        ASSERT_GT(samples.size(), 20u);
+        double input_val = 0.5;
+        double tap_sum = -0.1 + -0.05;
+        double expected_ss = input_val / (1.0 + tap_sum);
+        EXPECT_NEAR(samples.back(), expected_ss, 0.01)
+            << "Steady state should be x/(1+sum(taps))";
+    }
+    
+    // --- 场景 3：单抽头递推 ---
+    {
+        const auto& outputs = tb_single->get_outputs();
+        ASSERT_GE(outputs.size(), 3u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], 0.2, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.04, 1e-10);
+    }
+    
+    // --- 场景 4：多抽头递推 ---
+    {
+        const auto& outputs = tb_multi->get_outputs();
+        ASSERT_GE(outputs.size(), 4u);
+        EXPECT_NEAR(outputs[0], 1.0, 1e-10);
+        EXPECT_NEAR(outputs[1], 0.1, 1e-10);
+        EXPECT_NEAR(outputs[2], 0.06, 1e-10);
+        EXPECT_NEAR(outputs[3], 0.011, 1e-10);
+    }
+    
+    // --- 场景 5：空抽头直通 ---
+    {
+        const auto& outputs = tb_empty->get_outputs();
+        ASSERT_GE(outputs.size(), 4u);
+        for (size_t i = 0; i < seq_passthrough.size(); ++i) {
+            EXPECT_NEAR(outputs[i], seq_passthrough[i], 1e-10)
+                << "Empty taps should act as passthrough at index " << i;
+        }
+    }
+    
+    // --- 场景 6：N 路抽头取反（参数一致性 + 首样本直通） ---
+    {
+        RxDfeParams params_p;
+        params_p.taps = {-0.1, -0.05, 0.02};
+        for (size_t i = 0; i < params_p.taps.size(); ++i) {
+            EXPECT_NEAR(p_neg.taps[i], -params_p.taps[i], 1e-15)
+                << "N path taps should be negated at index " << i;
+        }
+        const auto& outputs = tb_neg->get_outputs();
+        ASSERT_GE(outputs.size(), 1u);
+        EXPECT_NEAR(outputs[0], 0.5, 1e-10)
+            << "First output should equal input (no history)";
     }
     
     sc_core::sc_stop();
 }
 
-/**
- * @brief Test constant non-zero input
- * 
- * With constant input x and DFE feedback:
- * y[n] = x - sum(taps[i] * y[n-1-i])
- * 
- * At steady state with constant x:
- * y_ss = x - sum(taps[i]) * y_ss
- * y_ss * (1 + sum(taps)) = x
- * y_ss = x / (1 + sum(taps))
- */
-TEST(RxDfeBasicTest, ConstantInputSteadyState) {
-    RxDfeParams params;
-    params.taps = {-0.1, -0.05};  // 2 taps, sum = -0.15
-    
-    double input_val = 0.5;
-    DfeBasicTestbench* tb = new DfeBasicTestbench("tb", params, input_val);
-    
-    // Run enough time for steady state
-    sc_core::sc_start(500, sc_core::SC_PS);  // 50 samples
-    
-    const auto& samples = tb->get_samples();
-    ASSERT_GT(samples.size(), 20u);
-    
-    // Calculate expected steady state
-    double tap_sum = 0.0;
-    for (double t : params.taps) {
-        tap_sum += t;
-    }
-    double expected_ss = input_val / (1.0 + tap_sum);
-    
-    // Check last few samples approach steady state
-    double last_output = samples.back();
-    EXPECT_NEAR(last_output, expected_ss, 0.01) 
-        << "Steady state should be x/(1+sum(taps))";
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test DFE with single tap
- */
-TEST(RxDfeBasicTest, SingleTap) {
-    RxDfeParams params;
-    params.taps = {-0.2};  // Single tap
-    
-    // Input sequence: 1, 0, 0, 0, ...
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    
-    DfeSequenceTestbench* tb = new DfeSequenceTestbench("tb", params, input_seq);
-    
-    sc_core::sc_start(100, sc_core::SC_PS);  // Run 10 samples
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 3u);
-    
-    // y[0] = 1.0 - 0 = 1.0 (no history yet)
-    // y[1] = 0.0 - (-0.2) * 1.0 = 0.2
-    // y[2] = 0.0 - (-0.2) * 0.2 = 0.04
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], 0.2, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.04, 1e-10);
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test DFE with multiple taps
- */
-TEST(RxDfeBasicTest, MultipleTaps) {
-    RxDfeParams params;
-    params.taps = {-0.1, -0.05};  // Two taps
-    
-    // Input sequence: 1, 0, 0, 0, ...
-    std::vector<double> input_seq = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    
-    DfeSequenceTestbench* tb = new DfeSequenceTestbench("tb", params, input_seq);
-    
-    sc_core::sc_start(100, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 4u);
-    
-    // Manual calculation:
-    // y[0] = 1.0 - 0 = 1.0
-    // y[1] = 0.0 - (-0.1)*1.0 - (-0.05)*0 = 0.1
-    // y[2] = 0.0 - (-0.1)*0.1 - (-0.05)*1.0 = 0.01 + 0.05 = 0.06
-    // y[3] = 0.0 - (-0.1)*0.06 - (-0.05)*0.1 = 0.006 + 0.005 = 0.011
-    EXPECT_NEAR(outputs[0], 1.0, 1e-10);
-    EXPECT_NEAR(outputs[1], 0.1, 1e-10);
-    EXPECT_NEAR(outputs[2], 0.06, 1e-10);
-    EXPECT_NEAR(outputs[3], 0.011, 1e-10);
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test DFE with empty taps (passthrough mode)
- */
-TEST(RxDfeBasicTest, EmptyTapsPassthrough) {
-    RxDfeParams params;
-    params.taps = {};  // No taps - should act as passthrough
-    
-    std::vector<double> input_seq = {0.5, -0.3, 0.8, -0.1};
-    
-    DfeSequenceTestbench* tb = new DfeSequenceTestbench("tb", params, input_seq);
-    
-    sc_core::sc_start(50, sc_core::SC_PS);
-    
-    const auto& outputs = tb->get_outputs();
-    ASSERT_GE(outputs.size(), 4u);
-    
-    // With empty taps, output should equal input
-    for (size_t i = 0; i < input_seq.size(); ++i) {
-        EXPECT_NEAR(outputs[i], input_seq[i], 1e-10)
-            << "Empty taps should act as passthrough at index " << i;
-    }
-    
-    sc_core::sc_stop();
-}
-
-/**
- * @brief Test negated taps for N path (differential processing)
- */
-TEST(RxDfeBasicTest, NegatedTapsForNPath) {
-    // P path: normal taps
-    RxDfeParams params_p;
-    params_p.taps = {-0.1, -0.05, 0.02};
-    
-    // N path: negated taps
-    RxDfeParams params_n;
-    params_n.taps = {0.1, 0.05, -0.02};
-    
-    std::vector<double> input_seq = {0.5, 0.3, -0.2, 0.4};
-    
-    DfeSequenceTestbench* tb_p = new DfeSequenceTestbench("tb_p", params_p, input_seq);
-    
-    sc_core::sc_start(50, sc_core::SC_PS);
-    const auto& outputs_p = tb_p->get_outputs();
-    
-    sc_core::sc_stop();
-    
-    // Verify taps are properly negated
-    for (size_t i = 0; i < params_p.taps.size(); ++i) {
-        EXPECT_NEAR(params_n.taps[i], -params_p.taps[i], 1e-15)
-            << "N path taps should be negated at index " << i;
-    }
-}
-
-// ============================================================================
-// Main Function
-// ============================================================================
-
-int sc_main(int argc, char* argv[]) {
-    // Disable SystemC deprecation warnings
-    sc_core::sc_report_handler::set_actions(
-        "/IEEE_Std_1666/deprecated",
-        sc_core::SC_DO_NOTHING
-    );
-    
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
+// sc_main 由 tests/test_main.cpp 统一提供（GTest 入口）

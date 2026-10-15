@@ -13,7 +13,7 @@ TEST(WaveGenBasicTest, PRBSModeVerification) {
     params.type = PRBSType::PRBS31;
     params.single_pulse = 0.0;  // Explicitly disable pulse mode
     
-    WaveGenTestbench* tb = new WaveGenTestbench("tb_prbs_mode", params, 80e9, 12345, 100);
+    WaveGenTestbench* tb = new WaveGenTestbench("tb_prbs_mode", params, 80e9, 12345, 1000);  // 覆盖种子前导零游程
     
     // Verify PRBS mode is active
     EXPECT_FALSE(tb->is_pulse_mode()) << "Should be in PRBS mode";

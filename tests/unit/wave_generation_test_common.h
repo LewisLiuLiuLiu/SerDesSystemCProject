@@ -71,7 +71,7 @@ SC_MODULE(WaveGenTestbench) {
         , sample_rate(sr)
         , seed(s)
     {
-        wave_gen = new WaveGenerationTdf("wave_gen", params, sample_rate, seed);
+        wave_gen = new WaveGenerationTdf("wave_gen", params, sample_rate, 100e-12, seed);  // UI = 100 ps (10 Gbps)
         receiver = new SimpleReceiver("receiver", max_samples);
         
         wave_gen->out(sig_wave);

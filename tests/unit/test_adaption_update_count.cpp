@@ -12,7 +12,6 @@ TEST(AdaptionBasicTest, UpdateCountVerification) {
     AdaptionParams params;
     params.fast_update_period = 1e-8;  // 10 ns for fast updates
     params.cdr_pi.enabled = true;       // Enable fast path updates
-    params.threshold.enabled = true;    // Enable fast path updates
     params.safety.freeze_on_error = false;  // Disable freeze for this test
     
     AdaptionBasicTestbench* tb = new AdaptionBasicTestbench("tb", params);

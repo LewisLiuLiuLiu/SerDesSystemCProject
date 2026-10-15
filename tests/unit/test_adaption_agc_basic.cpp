@@ -14,7 +14,7 @@ TEST(AdaptionAgcTest, AgcBasicFunction) {
     params.agc.initial_gain = 2.0;
     params.agc.target_amplitude = 0.4;
     params.dfe.enabled = false;
-    params.threshold.enabled = false;
+    params.vref_adapt.enabled = false;
     params.cdr_pi.enabled = false;
     
     AdaptionBasicTestbench* tb = new AdaptionBasicTestbench("tb", params);

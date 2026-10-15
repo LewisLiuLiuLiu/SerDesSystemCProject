@@ -29,9 +29,9 @@ TEST(CdrBasicTest, BasicFunctionality) {
     EXPECT_GE(phase, -params.pai.range) << "Phase output should be >= -range";
     EXPECT_LE(phase, params.pai.range) << "Phase output should be <= range";
 
-    // Verify phase is quantized
-    double quantized = std::round(phase / params.pai.resolution) * params.pai.resolution;
-    EXPECT_NEAR(phase, quantized, 1e-15) << "Phase should be quantized";
+    // 交替码型应产生非零相位调整（phase_out 输出为原始（未量化）相位——
+    // 量化仅用于触发时刻计算，见 rx_cdr.cpp）
+    EXPECT_GT(std::abs(phase), 0.0) << "Alternating pattern should produce phase adjustment";
 
     sc_core::sc_stop();
 }

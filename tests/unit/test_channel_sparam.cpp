@@ -4,9 +4,8 @@
  * 
  * Tests cover:
  * 1. Simple model (v0.4 compatible)
- * 2. Rational function fitting method
- * 3. Impulse response convolution method
- * 4. Configuration loading
+ * 2. State-space model data structures (unified VF entry)
+ * 3. Configuration loading (JSON parsing)
  */
 
 #include <gtest/gtest.h>
@@ -84,57 +83,44 @@ TEST_F(ChannelParamTest, AttenuationLinear) {
  * Test extended channel method enumeration
  */
 TEST(ChannelMethodTest, EnumValues) {
-    // Verify enum values are distinct
+    // 当前仅保留两种方法：SIMPLE 与 STATE_SPACE（统一 VF 入口）
     EXPECT_NE(static_cast<int>(ChannelMethod::SIMPLE), 
-              static_cast<int>(ChannelMethod::RATIONAL));
-    EXPECT_NE(static_cast<int>(ChannelMethod::RATIONAL), 
-              static_cast<int>(ChannelMethod::IMPULSE));
-    EXPECT_NE(static_cast<int>(ChannelMethod::SIMPLE), 
-              static_cast<int>(ChannelMethod::IMPULSE));
+              static_cast<int>(ChannelMethod::STATE_SPACE));
 }
 
 /**
  * Test extended parameters defaults
  */
 TEST(ChannelExtendedParamsTest, DefaultValues) {
+    // 扩展参数现仅包含方法选择与配置文件路径（统一 VF/状态空间入口）
     ChannelExtendedParams ext;
     
     EXPECT_EQ(ext.method, ChannelMethod::SIMPLE);
     EXPECT_TRUE(ext.config_file.empty());
-    EXPECT_EQ(ext.rational.order, 8);
-    EXPECT_TRUE(ext.rational.enforce_stable);
-    EXPECT_TRUE(ext.rational.enforce_passive);
-    EXPECT_EQ(ext.impulse.time_samples, 4096);
-    EXPECT_TRUE(ext.impulse.causality);
-    EXPECT_DOUBLE_EQ(ext.impulse.truncate_threshold, 1e-6);
-    EXPECT_DOUBLE_EQ(ext.fs, 100e9);
 }
 
 /**
- * Test rational filter data structure
+ * Test state-space data structure defaults
  */
-TEST(RationalFilterDataTest, DefaultValues) {
-    RationalFilterData rf;
+TEST(StateSpaceDataTest, DefaultValues) {
+    StateSpaceData ss;
     
-    EXPECT_TRUE(rf.num_coeffs.empty());
-    EXPECT_TRUE(rf.den_coeffs.empty());
-    EXPECT_EQ(rf.order, 0);
-    EXPECT_DOUBLE_EQ(rf.dc_gain, 1.0);
-    EXPECT_DOUBLE_EQ(rf.mse, 0.0);
+    EXPECT_EQ(ss.n_states, 0);
+    EXPECT_EQ(ss.n_inputs, 1);
+    EXPECT_EQ(ss.n_outputs, 1);
 }
 
 /**
- * Test impulse response data structure
+ * Test full-model data structure defaults
  */
-TEST(ImpulseResponseDataTest, DefaultValues) {
-    ImpulseResponseData ir;
+TEST(FullModelDataTest, DefaultValues) {
+    FullModelData fm;
     
-    EXPECT_TRUE(ir.time.empty());
-    EXPECT_TRUE(ir.impulse.empty());
-    EXPECT_EQ(ir.length, 0);
-    EXPECT_DOUBLE_EQ(ir.dt, 0.0);
-    EXPECT_DOUBLE_EQ(ir.energy, 0.0);
-    EXPECT_DOUBLE_EQ(ir.peak_time, 0.0);
+    EXPECT_EQ(fm.n_diff_ports, 0);
+    EXPECT_EQ(fm.n_outputs, 0);
+    EXPECT_EQ(fm.n_states, 0);
+    EXPECT_TRUE(fm.port_pairs.empty());
+    EXPECT_TRUE(fm.delays.empty());
 }
 
 /**

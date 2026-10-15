@@ -110,6 +110,38 @@ public:
 };
 
 // ============================================================================
+// Periodic sampling trigger source (replaces removed phase_offset input)
+// ============================================================================
+class TriggerSource : public sca_tdf::sca_module {
+public:
+    sca_tdf::sca_out<bool> trigger_out;
+    
+    double m_timestep;
+    int m_period_samples;
+    unsigned long m_step_count;
+    
+    TriggerSource(sc_core::sc_module_name nm, double trigger_rate = 10e9, double sample_rate = 100e9)
+        : sca_tdf::sca_module(nm)
+        , trigger_out("trigger_out")
+        , m_timestep(1.0 / sample_rate)
+        , m_period_samples(static_cast<int>(std::lround(sample_rate / trigger_rate)))
+        , m_step_count(0)
+    {
+        if (m_period_samples < 1) m_period_samples = 1;
+    }
+    
+    void set_attributes() {
+        trigger_out.set_rate(1);
+        trigger_out.set_timestep(m_timestep, sc_core::SC_SEC);
+    }
+    
+    void processing() {
+        trigger_out.write((m_step_count % m_period_samples) == 0);
+        m_step_count++;
+    }
+};
+
+// ============================================================================
 // Testbench for sampler basic functionality
 // ============================================================================
 
@@ -117,6 +149,7 @@ SC_MODULE(SamplerBasicTestbench) {
     DifferentialSource* src;
     ClockSource* clk_src;
     ConstantSource* phase_src;
+    TriggerSource* trigger_src;
     RxSamplerTdf* sampler;
     
     sca_tdf::sca_signal<double> sig_in_p;
@@ -124,6 +157,7 @@ SC_MODULE(SamplerBasicTestbench) {
     sca_tdf::sca_signal<double> sig_clk;
     sca_tdf::sca_signal<double> sig_phase;
     sca_tdf::sca_signal<double> sig_out;
+    sca_tdf::sca_signal<bool> sig_trigger;
     sc_core::sc_signal<bool> sig_out_de;  // DE domain signal for sca_tdf::sca_de::sca_out
     
     RxSamplerParams params;
@@ -138,6 +172,7 @@ SC_MODULE(SamplerBasicTestbench) {
         src = new DifferentialSource("src", input_amplitude, 0.6);
         clk_src = new ClockSource("clk_src", 10e9, 1.0, 0.5);
         phase_src = new ConstantSource("phase_src", 0.0);  // Zero phase offset
+        trigger_src = new TriggerSource("trigger_src", 10e9, 100e9);
         sampler = new RxSamplerTdf("sampler", params);
         
         // Connect signals
@@ -145,11 +180,12 @@ SC_MODULE(SamplerBasicTestbench) {
         src->out_n(sig_in_n);
         clk_src->clk_out(sig_clk);
         phase_src->out(sig_phase);
+        trigger_src->trigger_out(sig_trigger);
         
         sampler->in_p(sig_in_p);
         sampler->in_n(sig_in_n);
         sampler->clk_sample(sig_clk);
-        sampler->phase_offset(sig_phase);
+        sampler->sampling_trigger(sig_trigger);
         sampler->data_out(sig_out);
         sampler->data_out_de(sig_out_de);
     }

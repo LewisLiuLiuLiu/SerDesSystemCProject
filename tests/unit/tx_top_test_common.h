@@ -318,7 +318,7 @@ public:
         , sig_out_n("sig_out_n")
     {
         // Create WaveGen
-        wavegen = new WaveGenerationTdf("wavegen", wave_params, sample_rate, seed);
+        wavegen = new WaveGenerationTdf("wavegen", wave_params, sample_rate, 100e-12, seed);  // UI = 100 ps (10 Gbps)
         
         // Create VDD source
         vdd_src = new TxConstantVddSource("vdd_src", vdd_nominal);

@@ -15,7 +15,7 @@ TEST(AdaptionAgcTest, AgcRateLimiting) {
     params.agc.target_amplitude = 0.4;
     params.agc.rate_limit = 10.0;  // Limited rate
     params.dfe.enabled = false;
-    params.threshold.enabled = false;
+    params.vref_adapt.enabled = false;
     params.cdr_pi.enabled = false;
     
     AdaptionBasicTestbench* tb = new AdaptionBasicTestbench("tb", params);

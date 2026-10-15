@@ -17,7 +17,7 @@ TEST(AdaptionAgcTest, AgcConvergence) {
     params.agc.ki = 500.0;      // Increased for faster convergence
     params.slow_update_period = 1e-7;  // 100 ns for faster updates
     params.dfe.enabled = false;
-    params.threshold.enabled = false;
+    params.vref_adapt.enabled = false;
     params.cdr_pi.enabled = false;
     params.safety.freeze_on_error = false;  // Disable freeze for this test
     

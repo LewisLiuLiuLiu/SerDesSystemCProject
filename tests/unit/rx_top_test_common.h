@@ -10,6 +10,7 @@
 #include <systemc-ams>
 #include "ams/rx_top.h"
 #include <cmath>
+#include <string>
 #include <vector>
 
 namespace serdes {
@@ -219,23 +220,24 @@ public:
                    RxDifferentialSource::WaveformType src_type = RxDifferentialSource::DC,
                    double src_amplitude = 0.5,
                    double src_frequency = 10e9,
-                   double vdd_nominal = 1.0)
-        : sig_in_p("sig_in_p")
-        , sig_in_n("sig_in_n")
-        , sig_vdd("sig_vdd")
-        , sig_data_out("sig_data_out")
+                   double vdd_nominal = 1.0,
+                   const std::string& prefix = "tb")
+        : sig_in_p((prefix + "_sig_in_p").c_str())
+        , sig_in_n((prefix + "_sig_in_n").c_str())
+        , sig_vdd((prefix + "_sig_vdd").c_str())
+        , sig_data_out((prefix + "_sig_data_out").c_str())
     {
         // Create differential signal source
-        src = new RxDifferentialSource("src", src_type, src_amplitude, src_frequency);
+        src = new RxDifferentialSource((prefix + "_src").c_str(), src_type, src_amplitude, src_frequency);
         
         // Create VDD source
-        vdd_src = new RxConstantVddSource("vdd_src", vdd_nominal);
+        vdd_src = new RxConstantVddSource((prefix + "_vdd_src").c_str(), vdd_nominal);
         
         // Create DUT with adaption parameters
-        dut = new RxTopModule("dut", params, adaption_params);
+        dut = new RxTopModule((prefix + "_dut").c_str(), params, adaption_params);
         
         // Create monitor
-        monitor = new RxDataMonitor("monitor");
+        monitor = new RxDataMonitor((prefix + "_monitor").c_str());
         
         // Connect signals
         src->out_p(sig_in_p);
@@ -344,10 +346,8 @@ inline AdaptionParams get_default_adaption_params() {
     params.dfe.algorithm = "sign-lms";
     params.dfe.initial_taps = {-0.05, -0.02, 0.01};
     
-    // 阈值自适应参数（禁用）
-    params.threshold.enabled = false;
-    params.threshold.initial = 0.0;
-    params.threshold.hysteresis = 0.02;
+    // Vref 自适应参数（禁用）
+    params.vref_adapt.enabled = false;
     
     // CDR PI 参数（禁用，使用 RxCdrTdf 内部 PI）
     params.cdr_pi.enabled = false;

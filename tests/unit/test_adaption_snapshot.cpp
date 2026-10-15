@@ -12,7 +12,7 @@ TEST(AdaptionFreezeTest, SnapshotManagement) {
     AdaptionParams params;
     params.agc.enabled = true;
     params.dfe.enabled = true;
-    params.threshold.enabled = true;
+    params.vref_adapt.enabled = true;
     params.cdr_pi.enabled = true;
     params.fast_update_period = 1e-8;   // 10 ns for fast updates
     params.slow_update_period = 1e-7;   // 100 ns for slow updates

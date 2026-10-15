@@ -21,8 +21,11 @@ TEST(CdrPaiTest, PhaseQuantization) {
     sc_core::sc_start(10, sc_core::SC_NS);
 
     double phase = tb->get_phase_output();
-    double quantized = std::round(phase / params.pai.resolution) * params.pai.resolution;
-    EXPECT_NEAR(phase, quantized, 1e-15) << "Phase should be quantized to resolution";
+    // 相位输出为原始值（未量化，见 rx_cdr.cpp）；其步进粒度为 ki*ui
+    // （kp = 100*ki，比例项与积分项均为 ki*ui 的整数倍）
+    double step = params.pi.ki * 1e-10;  // ki * ui（CdrParams.ui 默认 100 ps）
+    double residual = std::abs(std::remainder(phase, step));
+    EXPECT_LE(residual, 1e-16) << "Phase should follow ki*ui step granularity";
 
     sc_core::sc_stop();
 }

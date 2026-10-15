@@ -323,6 +323,14 @@ target_link_libraries(test_sparam_load
 
 add_test(NAME sparam_load COMMAND test_sparam_load)
 
+# 测试数据目录（绝对路径，跨平台）注入
+target_compile_definitions(test_sparam_load PRIVATE
+    SERDES_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+if(TARGET test_channel_sparam_config)
+    target_compile_definitions(test_channel_sparam_config PRIVATE
+        SERDES_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+endif()
+
 # ============================================================================
 # 集成测试
 # ============================================================================
