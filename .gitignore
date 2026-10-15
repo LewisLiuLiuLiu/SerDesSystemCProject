@@ -19,6 +19,9 @@ IFLOW.md
 *.swp
 *.swo
 
+# Node modules (e.g. slides tooling) - never commit
+node_modules/
+
 # AI workflow (local only)
 .kimi-dev/
 
@@ -35,7 +38,8 @@ Thumbs.db
 *.dat
 *.vcd
 *.wdb
-*.csv          # 仿真生成的CSV数据文件
+# 仿真生成的CSV数据文件
+*.csv
 
 # Generated plots (root directory only)
 /*.png
@@ -44,7 +48,8 @@ Thumbs.db
 /*.svg
 
 # Output directories
-output_eye/    # 眼图分析输出目录
+# 眼图分析输出目录
+output_eye/
 
 # Cache directories
 .cache/

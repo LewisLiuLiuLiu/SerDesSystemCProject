@@ -5,11 +5,11 @@ SerDes Link EyeAnalyzer Script
 Analyzes waveform data from serdes_link_tb simulation.
 
 Usage:
-    python analyze_serdes_link.py <scenario_name>
+    python analyze_serdes_link.py [output_prefix]
     
 Example:
-    python analyze_serdes_link.py basic
-    python analyze_serdes_link.py s4p
+    python analyze_serdes_link.py nrz_10g
+    (默认前缀 nrz_10g；读取 build/<prefix>_*.csv 与 build/<prefix>_metadata.json)
 """
 
 import sys
@@ -28,14 +28,14 @@ except ImportError:
 
 def load_metadata(prefix):
     """Load simulation metadata JSON."""
-    metadata_file = f"{prefix}_metadata.json"
+    metadata_file = f"build/{prefix}_metadata.json"
     with open(metadata_file, 'r') as f:
         return json.load(f)
 
 
 def analyze_waveform(prefix, signal_name, ui):
     """Analyze a single waveform file using eye_analyzer."""
-    csv_file = f"build/tb/{prefix}_{signal_name}.csv"
+    csv_file = f"build/{prefix}_{signal_name}.csv"
     
     print(f"\n{'='*60}")
     print(f"Analyzing {signal_name.upper()} waveform")
@@ -120,25 +120,20 @@ def analyze_waveform(prefix, signal_name, ui):
 
 
 def main():
-    if len(sys.argv) < 2:
-        scenario = "basic"
-    else:
-        scenario = sys.argv[1]
+    prefix = sys.argv[1] if len(sys.argv) > 1 else "nrz_10g"
     
-    prefix = f"serdes_link_{scenario}"
+    print(f"SerDes Link Analysis - Output prefix: {prefix}")
     
-    print(f"SerDes Link Analysis - Scenario: {scenario}")
-    
-    # Load metadata
+    # Load metadata (schema written by tb/top/nrz_link_tb)
     try:
         metadata = load_metadata(prefix)
-        ui = metadata['simulation']['ui_s']
-        data_rate = metadata['simulation']['data_rate_bps']
+        ui = metadata.get('ui_ps', 100.0) * 1e-12
+        data_rate = metadata.get('data_rate_gbps', 10.0) * 1e9
         
         print(f"\nSimulation Parameters:")
         print(f"  Data rate: {data_rate/1e9:.2f} Gbps")
         print(f"  UI: {ui*1e12:.2f} ps")
-        print(f"  Channel: {metadata['channel']['type']}")
+        print(f"  Channel: {metadata.get('channel_method', 'unknown')}")
         
     except FileNotFoundError:
         print(f"Warning: Metadata file not found, using default UI=100ps")
