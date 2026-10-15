@@ -22,11 +22,12 @@ enum TestScenario {
 // Sampler瞬态仿真顶层模块 - 支持多种测试场景
 SC_MODULE(SamplerTransientTestbench) {
     // 模块实例
-    DiffSignalSource* src;
-    ClockSource* clk_src;
-    PhaseOffsetSource* phase_src;
-    RxSamplerTdf* sampler;
-    SamplerSignalMonitor* monitor;
+    DiffSignalSource* src = nullptr;
+    ClockSource* clk_src = nullptr;
+    PhaseOffsetSource* phase_src = nullptr;
+    TriggerSource* trigger_src = nullptr;
+    RxSamplerTdf* sampler = nullptr;
+    SamplerSignalMonitor* monitor = nullptr;
     
     // 信号连接
     sca_tdf::sca_signal<double> sig_in_p;
@@ -34,6 +35,8 @@ SC_MODULE(SamplerTransientTestbench) {
     sca_tdf::sca_signal<double> sig_clk;
     sca_tdf::sca_signal<double> sig_phase;
     sca_tdf::sca_signal<double> sig_out;
+    sca_tdf::sca_signal<bool> sig_sampling_trigger;   // 采样触发（TDF 域）
+    sc_core::sc_signal<bool> sig_data_out_de;         // Sampler DE 输出 -> Monitor DE 桥接输入
     
     TestScenario m_scenario;
     RxSamplerParams m_params;
@@ -60,6 +63,7 @@ SC_MODULE(SamplerTransientTestbench) {
         delete src;
         delete clk_src;
         delete phase_src;
+        delete trigger_src;
         delete sampler;
         delete monitor;
     }
@@ -146,6 +150,7 @@ SC_MODULE(SamplerTransientTestbench) {
         // 创建时钟源和相位源
         clk_src = new ClockSource("clk_src", 10e9, 1.0, 0.5, 100e9);
         phase_src = new PhaseOffsetSource("phase_src", 0.0, 100e9);
+        trigger_src = new TriggerSource("trigger_src", 10e9, 100e9);
         
         // 创建采样器实例
         try {
@@ -164,6 +169,11 @@ SC_MODULE(SamplerTransientTestbench) {
     }
     
     void connect_signals() {
+        // 参数验证场景下 sampler 构造失败（预期行为），跳过连接
+        if (sampler == nullptr || monitor == nullptr) {
+            return;
+        }
+        
         // 连接信号源到采样器
         src->out_p(sig_in_p);
         src->out_n(sig_in_n);
@@ -172,17 +182,23 @@ SC_MODULE(SamplerTransientTestbench) {
         clk_src->clk_out(sig_clk);
         phase_src->phase_out(sig_phase);
         
+        // 采样触发源 -> Sampler（被动式采样：每 UI 一次触发）
+        trigger_src->trigger_out(sig_sampling_trigger);
+        sampler->sampling_trigger(sig_sampling_trigger);
+        
         // 连接采样器
         sampler->in_p(sig_in_p);
         sampler->in_n(sig_in_n);
         sampler->clk_sample(sig_clk);
         // Note: phase_offset port removed from RxSamplerTdf
         sampler->data_out(sig_out);
+        sampler->data_out_de(sig_data_out_de);
         
         // 连接监测器
         monitor->in_p(sig_in_p);
         monitor->in_n(sig_in_n);
         monitor->data_out(sig_out);
+        monitor->data_out_de(sig_data_out_de);
     }
 };
 

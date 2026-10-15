@@ -164,7 +164,7 @@ SC_MODULE(WaveGenTranTestbench) {
         size_t max_samples = static_cast<size_t>(sim_duration_sec * sample_rate * 1.1);
         
         // Create modules
-        wave_gen = new WaveGenerationTdf("wave_gen", wave_params, sample_rate, seed);
+        wave_gen = new WaveGenerationTdf("wave_gen", wave_params, sample_rate, 100e-12, seed);  // UI = 100 ps (10 Gbps)
         monitor = new WaveMonitor("monitor", sample_rate, max_samples);
         
         // Connect signals

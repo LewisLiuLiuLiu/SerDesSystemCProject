@@ -278,7 +278,7 @@ SC_MODULE(TxTransientTestbench) {
     
     void build() {
         // Create WaveGen
-        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, 100e9, 12345);
+        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, 100e9, 100e-12, 12345);  // UI = 100 ps (10 Gbps)
         
         // Create VDD source
         vdd_src = new ConstVddSource("vdd_src", 1.0);
@@ -448,7 +448,7 @@ SC_MODULE(TxChannelTestbench) {
     
     void build() {
         // Create WaveGen
-        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, 100e9, 12345);
+        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, 100e9, 100e-12, 12345);  // UI = 100 ps (10 Gbps)
         
         // Create VDD source
         vdd_src = new ConstVddSource("vdd_src", 1.0);
@@ -484,8 +484,8 @@ SC_MODULE(TxChannelTestbench) {
         d2s->in_n(sig_tx_out_n);
         d2s->out(sig_channel_in);
         
-        channel->in(sig_channel_in);
-        channel->out(sig_channel_out);
+        channel->in[0](sig_channel_in);
+        channel->out[0](sig_channel_out);
         
         rx_recorder->in(sig_channel_out);
     }

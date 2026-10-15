@@ -217,7 +217,7 @@ SC_MODULE(RxLinkTestbench) {
         // Sampler (phase-driven mode is forced by RxTopModule)
         m_rx_params.sampler.phase_source = "phase";
         m_rx_params.sampler.threshold = 0.0;
-        m_rx_params.sampler.hysteresis = 0.02;
+        m_rx_params.sampler.hysteresis = 0.01;  // 需满足 hysteresis < resolution
         m_rx_params.sampler.resolution = 0.02;
         
         // CDR
@@ -247,9 +247,7 @@ SC_MODULE(RxLinkTestbench) {
         m_adaption_params.dfe.num_taps = 3;
         m_adaption_params.dfe.algorithm = "sign-lms";
         m_adaption_params.dfe.initial_taps = {-0.05, -0.02, 0.01};
-        m_adaption_params.threshold.enabled = false;
-        m_adaption_params.threshold.initial = 0.0;
-        m_adaption_params.threshold.hysteresis = 0.02;
+        m_adaption_params.vref_adapt.enabled = false;
         m_adaption_params.cdr_pi.enabled = false;
         m_adaption_params.safety.freeze_on_error = false;
         m_adaption_params.safety.rollback_enable = false;
@@ -291,7 +289,7 @@ SC_MODULE(RxLinkTestbench) {
         std::cout << "Building RX link testbench..." << std::endl;
         
         // Create WaveGen
-        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, m_sample_rate, 12345);
+        wavegen = new WaveGenerationTdf("wavegen", m_wave_params, m_sample_rate, m_ui, 12345);
         
         // Create Channel
         channel = new ChannelSParamTdf("channel", m_channel_params);
@@ -314,8 +312,8 @@ SC_MODULE(RxLinkTestbench) {
         
         // WaveGen → Channel
         wavegen->out(sig_wavegen_out);
-        channel->in(sig_wavegen_out);
-        channel->out(sig_channel_out);
+        channel->in[0](sig_wavegen_out);
+        channel->out[0](sig_channel_out);
         
         // Channel → S2D → RxTop
         s2d->in(sig_channel_out);
@@ -334,12 +332,12 @@ SC_MODULE(RxLinkTestbench) {
         // Recorder connections - using RxTop debug signals
         recorder->ch_out_p(sig_ch_out_p);
         recorder->ch_out_n(sig_ch_out_n);
-        recorder->ctle_out_p(rx_top->get_ctle_out_p_signal());
-        recorder->ctle_out_n(rx_top->get_ctle_out_n_signal());
-        recorder->vga_out_p(rx_top->get_vga_out_p_signal());
-        recorder->vga_out_n(rx_top->get_vga_out_n_signal());
-        recorder->dfe_out_p(rx_top->get_dfe_out_p_signal());
-        recorder->dfe_out_n(rx_top->get_dfe_out_n_signal());
+        recorder->ctle_out_p(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_ctle_out_p_signal()));
+        recorder->ctle_out_n(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_ctle_out_n_signal()));
+        recorder->vga_out_p(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_vga_out_p_signal()));
+        recorder->vga_out_n(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_vga_out_n_signal()));
+        recorder->dfe_out_p(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_dfe_out_p_signal()));
+        recorder->dfe_out_n(const_cast<sca_tdf::sca_signal<double>&>(rx_top->get_dfe_out_n_signal()));
         recorder->sampler_out(sig_data_out);
         // Note: CDR phase is accessed via debug interface, not signal connection
         

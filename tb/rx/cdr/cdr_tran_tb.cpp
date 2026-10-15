@@ -52,6 +52,7 @@ SC_MODULE(CdrTransientTestbench) {
     sca_tdf::sca_signal<double> sig_data;
     sca_tdf::sca_signal<double> sig_sampled;
     sca_tdf::sca_signal<double> sig_phase_out;
+    sca_tdf::sca_signal<bool> sig_sampling_trigger;  // CDR 采样触发输出（本 tb 不使用，绑定以满足精化要求）
 
     TestScenario m_scenario;
     CdrParams m_params;
@@ -79,8 +80,11 @@ SC_MODULE(CdrTransientTestbench) {
 
         // Create modules
         cdr = new RxCdrTdf("cdr", m_params);
-        sampler = new SimpleSampler("sampler", m_data_rate);
-        monitor = new CdrMonitor("monitor", get_output_filename(scenario), m_data_rate);
+        // 采样器/监控器与数据源保持同一采样率（100 GHz，10 ps 时间步），
+        // 满足 SystemC-AMS 同一集群内时间步一致性要求
+        const double sample_rate = 100e9;
+        sampler = new SimpleSampler("sampler", sample_rate);
+        monitor = new CdrMonitor("monitor", get_output_filename(scenario), sample_rate);
 
         // Connect modules
         src->out(sig_data);
@@ -91,6 +95,7 @@ SC_MODULE(CdrTransientTestbench) {
 
         cdr->in(sig_sampled);  // CDR gets data from sampler output
         cdr->phase_out(sig_phase_out);
+        cdr->sampling_trigger(sig_sampling_trigger);
 
         monitor->phase_in(sig_phase_out);
         monitor->data_in(sig_sampled);

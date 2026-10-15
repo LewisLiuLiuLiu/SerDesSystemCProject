@@ -23,8 +23,8 @@ endfunction()
 # ============================================================================
 # Simple link testbench
 # ============================================================================
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/simple_link_tb.cpp)
-    add_serdes_testbench(simple_link_tb simple_link_tb.cpp)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/top/simple_link_tb.cpp)
+    add_serdes_testbench(simple_link_tb top/simple_link_tb.cpp)
 endif()
 
 # ============================================================================
@@ -72,15 +72,15 @@ endif()
 # ============================================================================
 # TX Top transient testbench
 # ============================================================================
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tx/tx_tran_tb.cpp)
-    add_serdes_testbench(tx_tran_tb tx/tx_tran_tb.cpp)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tx/top/tx_tran_tb.cpp)
+    add_serdes_testbench(tx_tran_tb tx/top/tx_tran_tb.cpp)
 endif()
 
 # ============================================================================
 # RX Link transient testbench (complete RX chain)
 # ============================================================================
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/rx/rx_link_tb.cpp)
-    add_serdes_testbench(rx_link_tb rx/rx_link_tb.cpp)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/rx/top/rx_link_tb.cpp)
+    add_serdes_testbench(rx_link_tb rx/top/rx_link_tb.cpp)
 endif()
 
 # ============================================================================

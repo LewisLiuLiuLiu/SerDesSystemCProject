@@ -167,13 +167,48 @@ public:
     }
 };
 
+// 采样触发源 - 周期性输出 bool 采样触发（替代 CDR 触发，用于被动式 Sampler）
+class TriggerSource : public sca_tdf::sca_module {
+public:
+    sca_tdf::sca_out<bool> trigger_out;
+    
+    TriggerSource(sc_core::sc_module_name nm,
+                  double trigger_rate = 10e9,
+                  double sample_rate = 100e9)
+        : sca_tdf::sca_module(nm)
+        , trigger_out("trigger_out")
+        , m_timestep(1.0 / sample_rate)
+        , m_period_samples(static_cast<int>(std::lround(sample_rate / trigger_rate)))
+        , m_step_count(0)
+    {
+        if (m_period_samples < 1) {
+            m_period_samples = 1;
+        }
+    }
+    
+    void set_attributes() {
+        trigger_out.set_rate(1);
+        trigger_out.set_timestep(m_timestep, sc_core::SC_SEC);
+    }
+    
+    void processing() {
+        trigger_out.write((m_step_count % m_period_samples) == 0);
+        m_step_count++;
+    }
+    
+private:
+    double m_timestep;
+    int m_period_samples;
+    unsigned long m_step_count;
+};
+
 // 采样器信号监测模块 - 记录波形数据
 class SamplerSignalMonitor : public sca_tdf::sca_module {
 public:
     sca_tdf::sca_in<double> in_p;
     sca_tdf::sca_in<double> in_n;
     sca_tdf::sca_in<double> data_out;
-    sca_tdf::sca_in<bool> data_out_de;
+    sca_tdf::sca_de::sca_in<bool> data_out_de;  // DE 域桥接输入（来自 sampler 的 data_out_de）
     
     SamplerSignalMonitor(sc_core::sc_module_name nm, 
                         const std::string& filename = "",
@@ -203,11 +238,9 @@ public:
         in_p.set_rate(1);
         in_n.set_rate(1);
         data_out.set_rate(1);
-        data_out_de.set_rate(1);
         in_p.set_timestep(m_timestep, sc_core::SC_SEC);
         in_n.set_timestep(m_timestep, sc_core::SC_SEC);
         data_out.set_timestep(m_timestep, sc_core::SC_SEC);
-        data_out_de.set_timestep(m_timestep, sc_core::SC_SEC);
     }
     
     void processing() {
@@ -215,7 +248,7 @@ public:
         double vn = in_n.read(0);
         double diff = vp - vn;
         double tdf_output = data_out.read(0);
-        bool de_output = data_out_de.read(0);
+        bool de_output = data_out_de.read();
         
         if (m_file.is_open()) {
             double t = m_step_count * m_timestep;
