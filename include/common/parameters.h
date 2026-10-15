@@ -314,7 +314,7 @@ struct RxSamplerParams {
     
     RxSamplerParams()
         : threshold(0.0)
-        , hysteresis(0.02)
+        , hysteresis(0.01)
         , sample_delay(0.0)
         , phase_source("clock")
         , resolution(0.02)

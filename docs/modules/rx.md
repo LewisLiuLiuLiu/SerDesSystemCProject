@@ -276,7 +276,7 @@ struct CdrParams {
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | Single zero single pole | High-frequency boost, bandwidth limiting |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | Variable gain | AGC dynamic adjustment |
 | DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3 taps | Post-cursor ISI cancellation |
-| Sampler | `resolution=0.02`, `hysteresis=0.02` | Fuzzy decision | Metastability modeling |
+| Sampler | `resolution=0.02`, `hysteresis=0.01` | Fuzzy decision | Metastability modeling |
 | CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI controller | Phase tracking |
 | Adaption | `agc.target=0.4`, `dfe.mu=1e-4`, `safety.freeze_threshold=1000` | Multi-rate scheduling | Adaptive optimization |
 
@@ -329,7 +329,7 @@ struct CdrParams {
     "sampler": {
       "threshold": 0.0,
       "resolution": 0.02,
-      "hysteresis": 0.02,
+      "hysteresis": 0.01,
       "phase_source": "phase"
     }
   },

@@ -161,7 +161,7 @@ phase_offset signal values:
 | `phase_source` | string | "clock" | Phase source: clock/phase |
 | `threshold` | double | 0.0 | Decision threshold (V, default is 0V) |
 | `resolution` | double | 0.02 | Resolution threshold (V, fuzzy decision zone half-width) |
-| `hysteresis` | double | 0.02 | Hysteresis threshold (V, Schmitt trigger effect) |
+| `hysteresis` | double | 0.01 | Hysteresis threshold (V, Schmitt trigger effect; must be < resolution) |
 
 #### Offset Configuration Sub-structure
 

@@ -161,7 +161,7 @@ phase_offset信号值：
 | `phase_source` | string | "clock" | 相位来源：clock/phase |
 | `threshold` | double | 0.0 | 判决阈值（V，默认为0V） |
 | `resolution` | double | 0.02 | 分辨率阈值（V，模糊判决区半宽） |
-| `hysteresis` | double | 0.02 | 迟滞阈值（V，施密特触发器效应） |
+| `hysteresis` | double | 0.01 | 迟滞阈值（V，施密特触发器效应；须小于 resolution） |
 
 #### 偏移配置子结构
 

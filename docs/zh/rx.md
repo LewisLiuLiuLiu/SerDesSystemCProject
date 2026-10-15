@@ -275,7 +275,7 @@ struct CdrParams {
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | 单零点单极点 | 高频提升，带宽限制 |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | 可变增益 | AGC动态调整 |
 | DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3抽头 | 后游标ISI抵消 |
-| Sampler | `resolution=0.02`, `hysteresis=0.02` | 模糊判决 | 亚稳态建模 |
+| Sampler | `resolution=0.02`, `hysteresis=0.01` | 模糊判决 | 亚稳态建模 |
 | CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI控制器 | 相位跟踪 |
 | Adaption | `agc.target=0.4`, `dfe.mu=1e-4`, `safety.freeze_threshold=1000` | 多速率调度 | 自适应优化 |
 
@@ -328,7 +328,7 @@ struct CdrParams {
     "sampler": {
       "threshold": 0.0,
       "resolution": 0.02,
-      "hysteresis": 0.02,
+      "hysteresis": 0.01,
       "phase_source": "phase"
     }
   },

@@ -73,7 +73,7 @@ SystemParams ConfigLoader::load_default() {
     
     // RX Sampler  
     params.rx.sampler.threshold = 0.0;
-    params.rx.sampler.hysteresis = 0.02;
+    params.rx.sampler.hysteresis = 0.01;  // 需满足 hysteresis < resolution（默认 resolution=0.02）
     
     // RX DFE Summer
     params.rx.dfe_summer.tap_coeffs = {-0.05, -0.02, 0.01};
