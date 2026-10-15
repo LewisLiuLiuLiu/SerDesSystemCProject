@@ -96,6 +96,7 @@ void RxCdrTdf::initialize()
     m_edge_sample = false;
     m_data_sample = false;
     m_prev_data_sample = false;
+    m_prev_data_analog = 0.0;
 }
 
 // ============================================================================
@@ -110,7 +111,8 @@ void RxCdrTdf::processing()
     // Step 1: Read sampled value from Sampler (result of previous trigger)
     // ========================================================================
     // Due to TDF delay, we read the sample from the previous trigger here
-    bool sampled_value = (in.read() > 0.5);
+    double v_in = in.read();
+    bool sampled_value = (v_in > 0.5);
     
     // Store sample based on what we were waiting for
     if (m_sample_state == SampleState::WAIT_DATA) {
@@ -122,9 +124,11 @@ void RxCdrTdf::processing()
         // =====================================================================
         double phase_error = 0.0;
         
-        // Check for data transition by comparing with previous UI's data
-        if (m_data_sample != m_prev_data_sample) {
-            // Data transition detected - can perform BBPD
+        // 跳变检测：相邻数据样本的模拟量幅度差须超过 edge_threshold
+        // （低阈值下小幅跳变也应被检测；高阈值下小幅跳变被抑制）
+        double analog_delta = std::abs(v_in - m_prev_data_analog);
+        if (analog_delta > m_params.pi.edge_threshold) {
+            // 显著跳变 - 执行 BBPD
             if (m_edge_sample == m_data_sample) {
                 // Edge sample equals new data value → clock is EARLY
                 // (we sampled edge after the transition)
@@ -168,6 +172,7 @@ void RxCdrTdf::processing()
         
         // Save current data sample for next comparison
         m_prev_data_sample = m_data_sample;
+        m_prev_data_analog = v_in;
         
         // Reset state for next UI
         m_sample_state = SampleState::WAIT_EDGE;

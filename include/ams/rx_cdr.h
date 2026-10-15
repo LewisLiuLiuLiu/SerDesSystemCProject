@@ -150,6 +150,7 @@ private:
     bool m_edge_sample;            ///< Edge sample value (at UI boundary)
     bool m_data_sample;            ///< Data sample value (at UI/2)
     bool m_prev_data_sample;       ///< Previous UI's data sample for transition detection
+    double m_prev_data_analog;     ///< Previous UI's data sample (analog) for edge_threshold gating
     
     // ========================================================================
     // Member Variables

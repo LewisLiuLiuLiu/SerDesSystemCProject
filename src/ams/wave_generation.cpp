@@ -143,21 +143,17 @@ bool WaveGenerationTdf::generate_prbs_bit() {
 }
 
 void WaveGenerationTdf::processing() {
-    // Only generate new bit at UI boundary (every samples_per_ui samples)
-    if (m_sample_counter == 0) {
-        // Mode selection: Single-bit pulse vs PRBS
-        if (m_params.single_pulse > 0.0) {
-            // Single-bit pulse mode: output high during pulse, then low
-            if (m_time < m_params.single_pulse) {
-                m_current_bit_value = 1.0;
-            } else {
-                m_current_bit_value = -1.0;
-            }
-        } else {
-            // PRBS mode - generate next bit using LFSR
-            bool bit = generate_prbs_bit();
-            m_current_bit_value = bit ? 1.0 : -1.0;
-        }
+    // Mode selection: Single-bit pulse vs PRBS
+    if (m_params.single_pulse > 0.0) {
+        // Single-bit pulse mode: 每个采样点按时长判定；用采样点数的无量纲比较，
+        // 避免累积浮点误差在边界处把脉冲拉长/缩短一个采样点
+        double step_index = m_time * m_sample_rate;
+        double pulse_steps = m_params.single_pulse * m_sample_rate;
+        m_current_bit_value = (step_index < pulse_steps - 1e-9) ? 1.0 : -1.0;
+    } else if (m_sample_counter == 0) {
+        // PRBS mode - generate next bit at UI boundary using LFSR
+        bool bit = generate_prbs_bit();
+        m_current_bit_value = bit ? 1.0 : -1.0;
     }
     
     // Write output (held constant during UI for oversampling)

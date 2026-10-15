@@ -30,9 +30,9 @@ void RxDfeTdf::processing() {
     // 应用DFE补偿
     double y = x_in - feedback_sum;
     
-    // 更新历史（移位）
-    for (size_t i = m_history.size() - 1; i > 0; --i) {
-        m_history[i] = m_history[i-1];
+    // 更新历史（移位；兼容空抽头直通，避免 size()-1 下溢）
+    for (size_t i = m_history.size(); i > 1; --i) {
+        m_history[i - 1] = m_history[i - 2];
     }
     if (!m_history.empty()) {
         m_history[0] = y;  // 存储当前输出作为下次反馈

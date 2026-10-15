@@ -350,7 +350,9 @@ bool AdaptionDe::rollback_to_snapshot() {
             m_agc_integral = 0.0;
             m_cdr_integral = 0.0;
 
-            write_all_outputs();
+            // 注意：此处不能调用 write_all_outputs()——这些输出端口已由 slow_path
+            // 驱动，快路径再写会触发 sc_signal 多驱动器错误 (E115)。回滚仅恢复内部
+            // 状态；冻结点后的端口输出保持冻结前值，解冻后由慢路径重新发布。
 
             m_freeze_flag = false;
             return true;

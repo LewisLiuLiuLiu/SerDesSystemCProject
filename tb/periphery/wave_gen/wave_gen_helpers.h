@@ -224,6 +224,11 @@ public:
         double rise_time = -1.0;
         double fall_time = -1.0;
         
+        // 脉冲从采样窗口起点开始（无上升沿）时，起点即脉冲起始时刻
+        if (!samples.empty() && samples[0] > 0) {
+            rise_time = timestamps[0];
+        }
+        
         for (size_t i = 1; i < samples.size(); ++i) {
             if (rise_time < 0 && samples[i] > 0 && samples[i-1] <= 0) {
                 rise_time = timestamps[i];
