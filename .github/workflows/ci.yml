@@ -4,9 +4,12 @@
 # - SystemC 2.3.4 源码：accellera-official/systemc（官方）
 # - SystemC-AMS 2.3.4 源码：Risto97/systemc-ams@v2.3.4（公开镜像，非官方；
 #   如失效可通过仓库 Variables 覆盖 SYSTEMC_AMS_SRC_URL，或改用本地发布件）
+# - 两个库均用 CMake 构建（AMS 2.3.4 自带 CMakeLists，避免 autotools 对
+#   libsystemc.la 的依赖——CMake 安装的 SystemC 不带 .la 文件）。
+# - SystemC 2.3.4 / AMS 的 cmake_minimum_required 低于 3.5，CMake 4 需放行：
+#   统一传 -DCMAKE_POLICY_VERSION_MINIMUM=3.5（CMake 提示的标准做法）。
 # - 两个库与消费工程使用同一 C++ 标准（macOS=C++11 / Linux=C++14），
 #   与工程内"平台自适应标准"策略一致（API 版本符号需匹配，见 README）。
-# - 首次引入可能需要 1-2 轮修正（上游 URL/autotools 依赖），失败属正常迭代。
 name: CI
 
 on:
@@ -44,11 +47,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake autoconf automake libtool
+          sudo apt-get install -y build-essential cmake
 
       - name: Toolchain deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake autoconf automake libtool
+        run: brew install cmake
 
       - name: Cache SystemC/SystemC-AMS install
         uses: actions/cache@v4
@@ -66,30 +69,35 @@ jobs:
           fi
           mkdir -p deps && cd deps
           if [ "$RUNNER_OS" = "macOS" ]; then
-            STD=11; CXXSTD="gnu++11"
+            STD=11
           else
-            STD=14; CXXSTD="gnu++14"
+            STD=14
           fi
-          echo "lib C++ standard: C++$STD"
+          echo "libraries C++ standard: C++$STD"
+          JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
-          # --- SystemC ---
+          # --- SystemC 2.3.4（CMake） ---
           curl -L -o systemc.tar.gz "$SYSTEMC_SRC_URL"
           tar xzf systemc.tar.gz
           cmake -S systemc-2.3.4 -B systemc-build \
             -DCMAKE_INSTALL_PREFIX="$PREFIX" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_STANDARD=$STD
-          cmake --build systemc-build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+            -DCMAKE_CXX_STANDARD=$STD \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build systemc-build -j"$JOBS"
           cmake --install systemc-build
 
-          # --- SystemC-AMS (autotools) ---
+          # --- SystemC-AMS 2.3.4（CMake，替代 autotools） ---
           curl -L -o systemc-ams.tar.gz "$SYSTEMC_AMS_SRC_URL"
           tar xzf systemc-ams.tar.gz
-          cd "$(ls -d systemc-ams-* | head -1)"
-          if [ ! -x ./configure ]; then autoreconf -fiv; fi
-          ./configure --with-systemc="$PREFIX" --prefix="$PREFIX" CXXFLAGS="-std=$CXXSTD"
-          make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-          make install
+          cmake -S systemc-ams-2.3.4 -B ams-build \
+            -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSYSTEMC_HOME="$PREFIX" \
+            -DCMAKE_CXX_STANDARD=$STD \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build ams-build -j"$JOBS"
+          cmake --install ams-build
 
       - name: Configure project (BUILD_TESTING=ON)
         run: |
