@@ -89,6 +89,7 @@ create_test_executables("${ADAPTION_TESTS}")
 set(CDR_TESTS
     cdr_basic_functionality         # 基础功能测试
     cdr_debug_interface             # 调试接口测试
+    cdr_trigger_timebase            # 采样触发时基回归（P0-1/F-22）
     cdr_pi_config                   # PI配置测试
     cdr_pi_proportional             # PI比例项测试
     cdr_pi_integral                 # PI积分项测试

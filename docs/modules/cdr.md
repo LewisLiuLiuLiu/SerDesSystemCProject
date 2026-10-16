@@ -56,11 +56,14 @@ The phase detector outputs discrete Early/Late signals, which are integrated and
 |-----------|-----------|------|-------------|
 | `in` | Input | double | Received data input (analog signal, from DFE or sampler) |
 | `phase_out` | Output | double | Phase adjustment output (unit: seconds s) |
+| `sampling_trigger` | Output | bool | Sampling trigger (2 per UI: edge @ k·UI+qq, data @ k·UI+sample_point·UI+qq) |
+| `phase_error_de` | Output | double (DE bridge) | BBPD phase error (seconds, 0/±UI) for AdaptionDe monitoring/freeze; write-on-change |
 
 > **Port Notes**:
 > - The `in` port receives continuous analog signals; CDR extracts clock information from data transitions
 > - The `phase_out` port outputs phase offset (unit: seconds), connected to the sampler's `phase_offset` input port
 > - Positive values indicate delayed sampling (late clock), negative values indicate early sampling (early clock)
+> - **Sampling trigger timebase (2026-10 revision)**: trigger instants are scheduled exactly on the integer step grid (ceil-aligned); exactly 2 triggers per UI for any timestep configuration. The previous float phase-accumulation + crossing-detection implementation intermittently skipped crossings (worst case: a 16-UI sampling gap; P0-1/F-22)
 
 ### 2.2 Parameter Configuration
 

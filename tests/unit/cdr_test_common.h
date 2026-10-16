@@ -59,6 +59,7 @@ SC_MODULE(CdrBasicTestbench) {
     sca_tdf::sca_signal<double> sig_data;
     sca_tdf::sca_signal<double> sig_phase;
     sca_tdf::sca_signal<bool> sig_trigger;  // CDR sampling_trigger 输出（本测试不使用触发）
+    sc_core::sc_signal<double> sig_phase_error_de;  // BBPD 误差 DE 输出（本测试不监测）
 
     CdrParams params;
 
@@ -73,6 +74,7 @@ SC_MODULE(CdrBasicTestbench) {
         cdr->in(sig_data);
         cdr->phase_out(sig_phase);
         cdr->sampling_trigger(sig_trigger);
+        cdr->phase_error_de(sig_phase_error_de);
     }
 
     ~CdrBasicTestbench() {

@@ -15,8 +15,17 @@
  *       The Bang-Bang PD uses edge polarity detection rather than a full
  *       data/edge sampler XOR architecture.
  * 
- * @version 0.2
- * @date 2026-01-20
+ * Sampling trigger timebase (2026-10 rewrite):
+ *   For UI index k = 0,1,2,... and quantized PI phase correction qq:
+ *     edge trigger instant:  k*ui + qq
+ *     data trigger instant:  k*ui + sample_point*ui + qq
+ *   Instants are aligned to the simulation step grid via ceil(t/timestep),
+ *   so exactly 2 triggers per UI are emitted for any timestep configuration
+ *   (integer scheduling — replaces floating-point phase accumulation /
+ *   crossing detection, which intermittently skipped crossings; F-22/P0-1).
+ * 
+ * @version 0.3
+ * @date 2026-10-16
  */
 
 #ifndef SERDES_RX_CDR_H
@@ -69,6 +78,16 @@ public:
      * Connected to sampler's sampling_trigger input
      */
     sca_tdf::sca_out<bool> sampling_trigger;
+
+    /**
+     * @brief BBPD 相位误差输出（DE 域，单位：秒）
+     *
+     * 输出 m_last_phase_error * ui（±UI 或 0，三元 BBPD 结果），供
+     * AdaptionDe 的相位监视/冻结判据使用。写变更触发（事件驱动），
+     * 避免逐采样刷 DE 事件。注意：rx_top 中承担相位锁定的是本模块内部
+     * PI；AdaptionDe.cdr_pi 输出（phase_cmd）为监视量，不参与环路。
+     */
+    sca_tdf::sca_de::sca_out<double> phase_error_de;
 
     // ========================================================================
     // Constructor
@@ -160,7 +179,16 @@ private:
     double m_phase;               ///< Current phase accumulation (s)
     double m_integral;            ///< PI controller integral state
     double m_last_phase_error;    ///< Last phase error from BB-PD
-    double m_free_running_phase;  ///< Free-running phase accumulator for sampling trigger generation
+
+    // ---- 整数时基调度（2026-10 重写） ----
+    long long m_step_index;       ///< 处理调用计数（仿真步号，从 0 起）
+    long long m_edge_ui;          ///< 下一个待发 edge 触发对应的 UI 序号 k
+    long long m_data_ui;          ///< 下一个待发 data 触发对应的 UI 序号 k
+    long long m_next_edge_step;   ///< 下一 edge 触发的绝对步号
+    long long m_next_data_step;   ///< 下一 data 触发的绝对步号
+    double m_scheduled_qq;        ///< 当前调度使用的量化相位（qq）
+    double m_ts_cached;           ///< 缓存的 timestep（首个 processing 惰性获取）
+    double m_last_written_pe;     ///< phase_error_de 写变更检测值
 
     // ========================================================================
     // Private Methods
@@ -171,6 +199,15 @@ private:
      * @throws std::invalid_argument if parameters are invalid
      */
     void validate_params();
+
+    /// 当前量化相位（调度用）
+    double quantized_phase() const;
+
+    /// 时刻 t 对齐到步格（ceil），不低于 floor_step
+    long long steps_for(double t, long long floor_step) const;
+
+    /// 以给定 qq 重排尚未发出的 edge/data 触发（floor = 当前步）
+    void reschedule(double qq);
 };
 
 } // namespace serdes

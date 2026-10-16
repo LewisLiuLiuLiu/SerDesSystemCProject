@@ -22,6 +22,7 @@ RxCdrTdf::RxCdrTdf(sc_core::sc_module_name nm, const CdrParams& params)
     , in("in")
     , phase_out("phase_out")
     , sampling_trigger("sampling_trigger")
+    , phase_error_de("phase_error_de")
     , m_params(params)
     , m_sample_state(SampleState::WAIT_EDGE)
     , m_edge_sample(false)
@@ -30,7 +31,14 @@ RxCdrTdf::RxCdrTdf(sc_core::sc_module_name nm, const CdrParams& params)
     , m_phase(0.0)
     , m_integral(0.0)
     , m_last_phase_error(0.0)
-    , m_free_running_phase(0.0)
+    , m_step_index(0)
+    , m_edge_ui(0)
+    , m_data_ui(0)
+    , m_next_edge_step(0)
+    , m_next_data_step(0)
+    , m_scheduled_qq(0.0)
+    , m_ts_cached(0.0)
+    , m_last_written_pe(1.0)  // 哨兵：与任何合法误差值（0/±ui）不同，强制首次写出
 {
     // Validate parameters during construction
     validate_params();
@@ -89,7 +97,6 @@ void RxCdrTdf::initialize()
     m_phase = 0.0;
     m_integral = 0.0;
     m_last_phase_error = 0.0;
-    m_free_running_phase = 0.0;
     
     // Initialize sampling state machine
     m_sample_state = SampleState::WAIT_EDGE;
@@ -97,6 +104,58 @@ void RxCdrTdf::initialize()
     m_data_sample = false;
     m_prev_data_sample = false;
     m_prev_data_analog = 0.0;
+    
+    // 整数时基调度状态（timestep 未知，首个 processing 中惰性初始化）
+    m_step_index = 0;
+    m_edge_ui = 0;
+    m_data_ui = 0;
+    m_next_edge_step = 0;
+    m_next_data_step = 0;
+    m_scheduled_qq = 0.0;
+    m_ts_cached = 0.0;
+    m_last_written_pe = 1.0;
+}
+
+// ============================================================================
+// 整数时基调度辅助（2026-10 重写）
+// ============================================================================
+
+double RxCdrTdf::quantized_phase() const
+{
+    return std::round(m_phase / m_params.pai.resolution) * m_params.pai.resolution;
+}
+
+long long RxCdrTdf::steps_for(double t, long long floor_step) const
+{
+    long long n;
+    if (t <= 0.0) {
+        n = 0;
+    } else {
+        // ceil 对齐步格；微小相对 epsilon 防止整倍数处 FP 进位
+        n = static_cast<long long>(std::ceil(t / m_ts_cached - 1e-9));
+    }
+    return (n < floor_step) ? floor_step : n;
+}
+
+void RxCdrTdf::reschedule(double qq)
+{
+    // 尚未发出的 edge/data 触发按新 qq 重排（floor = 当前步，允许即拍补发，
+    // 保证相位回跳时触发不丢失）
+    m_next_edge_step = steps_for(m_edge_ui * m_params.ui + qq, m_step_index);
+    
+    double sp = m_params.sample_point;
+    if (sp < 0.0) sp = 0.0;
+    if (sp > 1.0) sp = 1.0;
+    m_next_data_step = steps_for(m_data_ui * m_params.ui + sp * m_params.ui + qq,
+                                 m_step_index);
+    
+    // 乱序防护：仅当 data 与尚未发出的 edge 属于同一 UI 时，
+    // 才要求 data 不早于该 edge。（若 edge-k 已发出、计数器已前进，
+    // 则 data-k 与待发的 edge-(k+1) 分属不同 UI，不得比较抬升，
+    // 否则 data-k 会被合并进 edge-(k+1) 导致丢失——2026-10 修复）
+    if (m_data_ui == m_edge_ui && m_next_data_step < m_next_edge_step) {
+        m_next_data_step = m_next_edge_step;
+    }
 }
 
 // ============================================================================
@@ -105,8 +164,6 @@ void RxCdrTdf::initialize()
 
 void RxCdrTdf::processing()
 {
-    double timestep = get_timestep().to_seconds();
-    
     // ========================================================================
     // Step 1: Read sampled value from Sampler (result of previous trigger)
     // ========================================================================
@@ -185,48 +242,43 @@ void RxCdrTdf::processing()
     }
     
     // ========================================================================
-    // Step 5: Generate sampling triggers (two per UI)
+    // Step 5: 采样触发调度（2026-10 整数时基重写）
     // ========================================================================
-    // Update free-running phase
-    m_free_running_phase += timestep;
-    
-    // Calculate total phase with current CDR adjustment
-    double quantized_phase = std::round(m_phase / m_params.pai.resolution) 
-                             * m_params.pai.resolution;
-    double total_phase = m_free_running_phase + quantized_phase;
-    
-    // Phase within UI
-    double phase_in_ui = std::fmod(total_phase, m_params.ui);
-    if (phase_in_ui < 0) phase_in_ui += m_params.ui;
-    
-    // Previous phase
-    double prev_total = total_phase - timestep;
-    double prev_in_ui = std::fmod(prev_total, m_params.ui);
-    if (prev_in_ui < 0) prev_in_ui += m_params.ui;
-    
-    // Two sampling points within UI
-    // Edge at UI boundary (0 or UI), Data at UI/2
-    double edge_point = 0.0;  // or m_params.ui (same position)
-    double data_point = m_params.ui / 2.0;
-    
-    bool trigger = false;
-    
-    // Check which trigger to generate based on state
-    if (m_sample_state == SampleState::WAIT_EDGE) {
-        // Waiting for edge trigger (at UI boundary)
-        if (prev_in_ui < edge_point && phase_in_ui >= edge_point) {
-            trigger = true;
+    // 语义：edge 触发 @ k*ui + qq；data 触发 @ k*ui + sp*ui + qq。
+    // 步格对齐用 ceil，任何 timestep 下每 UI 恰好 2 个触发。
+    if (m_ts_cached <= 0.0) {
+        m_ts_cached = get_timestep().to_seconds();
+        if (m_ts_cached <= 0.0) {
+            m_ts_cached = 1e-12;  // 退化保护
         }
-        // Handle wrap-around at UI boundary
-        else if (prev_in_ui > phase_in_ui && phase_in_ui >= edge_point) {
-            trigger = true;
-        }
+        reschedule(m_scheduled_qq);
     }
-    else { // WAIT_DATA
-        // Waiting for data trigger (at UI/2)
-        if (prev_in_ui < data_point && phase_in_ui >= data_point) {
-            trigger = true;
-        }
+    
+    // PI 更新了量化相位 → 重排尚未发出的触发（floor = 当前步，允许补发）
+    double qq = quantized_phase();
+    if (qq != m_scheduled_qq) {
+        m_scheduled_qq = qq;
+        reschedule(qq);
+    }
+    
+    bool edge_trig = false;
+    bool data_trig = false;
+    
+    if (m_step_index >= m_next_edge_step) {
+        edge_trig = true;
+        ++m_edge_ui;
+        m_next_edge_step = steps_for(m_edge_ui * m_params.ui + m_scheduled_qq,
+                                     m_step_index + 1);
+    }
+    if (m_step_index >= m_next_data_step) {
+        data_trig = true;
+        ++m_data_ui;
+        double sp = m_params.sample_point;
+        if (sp < 0.0) sp = 0.0;
+        if (sp > 1.0) sp = 1.0;
+        m_next_data_step = steps_for(
+            m_data_ui * m_params.ui + sp * m_params.ui + m_scheduled_qq,
+            m_step_index + 1);
     }
     
     // ========================================================================
@@ -234,7 +286,16 @@ void RxCdrTdf::processing()
     // ========================================================================
     // Output the actual phase (not quantized) for better visualization
     phase_out.write(m_phase);
-    sampling_trigger.write(trigger);
+    sampling_trigger.write(edge_trig || data_trig);
+    
+    // BBPD 相位误差（秒）→ DE 域（写变更，事件驱动；供 AdaptionDe 监视）
+    double pe_sec = m_last_phase_error * m_params.ui;
+    if (pe_sec != m_last_written_pe) {
+        phase_error_de.write(pe_sec);
+        m_last_written_pe = pe_sec;
+    }
+    
+    ++m_step_index;
 }
 
 } // namespace serdes

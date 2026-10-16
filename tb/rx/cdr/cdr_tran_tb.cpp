@@ -53,6 +53,7 @@ SC_MODULE(CdrTransientTestbench) {
     sca_tdf::sca_signal<double> sig_sampled;
     sca_tdf::sca_signal<double> sig_phase_out;
     sca_tdf::sca_signal<bool> sig_sampling_trigger;  // CDR 采样触发输出（本 tb 不使用，绑定以满足精化要求）
+    sc_core::sc_signal<double> sig_phase_error_de;   // BBPD 误差 DE 输出（本 tb 不使用，绑定以满足精化要求）
 
     TestScenario m_scenario;
     CdrParams m_params;
@@ -96,6 +97,7 @@ SC_MODULE(CdrTransientTestbench) {
         cdr->in(sig_sampled);  // CDR gets data from sampler output
         cdr->phase_out(sig_phase_out);
         cdr->sampling_trigger(sig_sampling_trigger);
+        cdr->phase_error_de(sig_phase_error_de);
 
         monitor->phase_in(sig_phase_out);
         monitor->data_in(sig_sampled);

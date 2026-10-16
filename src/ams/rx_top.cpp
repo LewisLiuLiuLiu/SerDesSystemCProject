@@ -210,6 +210,8 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_dfe_summer->data_in(m_sig_data_feedback);
     m_cdr->in(m_sig_cdr_in);
     m_cdr->phase_out(m_sig_cdr_phase);
+    // BBPD 相位误差 → AdaptionDe（真实接线，2026-10；此前为假常量 0.0）
+    m_cdr->phase_error_de(m_sig_phase_error_de);
 
     // Bind unused data_out_de ports to dummy signals (required by SystemC-AMS)
     m_sampler->data_out_de(m_sig_dummy_data_out_de_0);
@@ -316,9 +318,9 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     // ========================================================================
     // Initialize DE signals with default values
     // ========================================================================
-    m_sig_phase_error_de.write(0.0);   // TODO(batch 2): CDR → AdaptionDe 相位误差闭环
-    // 注意：m_sig_amplitude_rms_de 现由幅度检测器（sca_de::sca_out）驱动，
-    // 不能再在此处写入（会触发 sc_signal 多驱动器错误 E115）。
+    // 注意：m_sig_phase_error_de 现由 CDR（sca_de::sca_out）驱动，
+    // m_sig_amplitude_rms_de 由幅度检测器驱动，均不能再在此处写入
+    // （会触发 sc_signal 多驱动器错误 E115）。
     m_sig_mode_de.write(2);        // Data mode from start
     m_sig_reset_de.write(false);
     m_sig_scenario_switch_de.write(0.0);
