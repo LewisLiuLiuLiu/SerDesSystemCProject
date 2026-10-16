@@ -22,6 +22,12 @@ IFLOW.md
 # Node modules (e.g. slides tooling) - never commit
 node_modules/
 
+# 论文/演示材料（仅本地，永不入库）
+*.pdf
+*.ppt
+*.pptx
+slides/
+
 # AI workflow (local only)
 .kimi-dev/
 
