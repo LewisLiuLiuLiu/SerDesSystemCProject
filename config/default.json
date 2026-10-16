@@ -1,6 +1,7 @@
 {
+  "_comment": "SerDes 规范默认配置（= parameters.h 结构体构造默认值的序列化）。ConfigLoader 以此为覆盖层示例：未出现的键保持默认；未知键警告；类型/枚举错误则加载失败。单位约定：秒 / 赫兹（SI）。键名以 '_' 开头视为注释。",
   "global": {
-    "Fs": 2.56e12,
+    "Fs": 80000000000.0,
     "UI": 2.5e-11,
     "duration": 1e-6,
     "seed": 12345
@@ -9,41 +10,58 @@
     "type": "PRBS31",
     "poly": "x^31 + x^28 + 1",
     "init": "0x7FFFFFFF",
+    "single_pulse": 0.0,
     "jitter": {
-      "RJ_sigma": 5e-13,
-      "SJ_freq": [5e6],
-      "SJ_pp": [2e-12]
+      "RJ_sigma": 0.0,
+      "SJ_freq": [],
+      "SJ_pp": []
     },
     "modulation": {
-      "AM": 0.1,
-      "PM": 0.01
+      "AM": 0.0,
+      "PM": 0.0
     }
   },
   "tx": {
-    "ffe_taps": [0.2, 0.6, 0.2],
+    "ffe": {
+      "taps": [0.2, 0.6, 0.2]
+    },
     "mux_lane": 0,
     "driver": {
-      "swing": 0.8,
-      "bw": 20e9,
-      "nonlinear": {
-        "sat": 1.0
+      "dc_gain": 1.0,
+      "vswing": 0.8,
+      "vcm_out": 0.6,
+      "output_impedance": 50.0,
+      "poles": [50000000000.0],
+      "sat_mode": "soft",
+      "vlin": 1.0,
+      "psrr": {
+        "enable": false,
+        "gain": 0.01,
+        "poles": [1000000000.0],
+        "vdd_nom": 1.0
+      },
+      "imbalance": {
+        "gain_mismatch": 0.0,
+        "skew": 0.0
+      },
+      "slew_rate": {
+        "enable": false,
+        "max_slew_rate": 1e12
       }
     }
   },
   "channel": {
-    "touchstone": "chan_4port.s4p",
+    "touchstone": "",
     "ports": 2,
-    "crosstalk": true,
-    "bidirectional": true,
-    "simple_model": {
-      "attenuation_db": 10.0,
-      "bandwidth_hz": 20e9
-    }
+    "crosstalk": false,
+    "bidirectional": false,
+    "attenuation_db": 10.0,
+    "bandwidth_hz": 20000000000.0
   },
   "rx": {
     "ctle": {
-      "zeros": [2e9],
-      "poles": [30e9],
+      "zeros": [2000000000.0],
+      "poles": [30000000000.0],
       "dc_gain": 1.5,
       "vcm_out": 0.6,
       "offset_enable": false,
@@ -52,69 +70,129 @@
       "vnoise_sigma": 0.0,
       "sat_min": -0.5,
       "sat_max": 0.5,
-      "psrr": {
-        "enable": false,
-        "gain": 0.0,
-        "zeros": [],
-        "poles": [],
-        "vdd_nom": 1.0
-      },
-      "cmfb": {
-        "enable": false,
-        "bandwidth": 1e6,
-        "loop_gain": 1.0
-      },
-      "cmrr": {
-        "enable": false,
-        "gain": 0.0,
-        "zeros": [],
-        "poles": []
-      }
+      "psrr": { "enable": false, "gain": 0.0, "zeros": [], "poles": [], "vdd_nom": 1.0 },
+      "cmfb": { "enable": false, "bandwidth": 1000000.0, "loop_gain": 1.0 },
+      "cmrr": { "enable": false, "gain": 0.0, "zeros": [], "poles": [] }
     },
     "vga": {
-      "gain": 4.0,
-      "agc_enable": false
+      "zeros": [1000000000.0],
+      "poles": [20000000000.0],
+      "dc_gain": 2.0,
+      "vcm_out": 0.6,
+      "offset_enable": false,
+      "vos": 0.0,
+      "noise_enable": false,
+      "vnoise_sigma": 0.0,
+      "sat_min": -0.5,
+      "sat_max": 0.5,
+      "psrr": { "enable": false, "gain": 0.0, "zeros": [], "poles": [], "vdd_nom": 1.0 },
+      "cmfb": { "enable": false, "bandwidth": 1000000.0, "loop_gain": 1.0 },
+      "cmrr": { "enable": false, "gain": 0.0, "zeros": [], "poles": [] }
     },
     "sampler": {
       "threshold": 0.0,
-      "hysteresis": 0.02
+      "hysteresis": 0.01,
+      "sample_delay": 0.0,
+      "phase_source": "clock",
+      "resolution": 0.02,
+      "offset_enable": false,
+      "offset_value": 0.0,
+      "noise_enable": false,
+      "noise_sigma": 0.0,
+      "noise_seed": 12345
     },
-    "dfe": {
-      "taps": [-0.05, -0.02, 0.01],
-      "update": "sign-lms",
-      "mu": 1e-4
+    "dfe_summer": {
+      "tap_coeffs": [-0.05, -0.02, 0.01],
+      "ui": 1e-10,
+      "vcm_out": 0.0,
+      "vtap": 1.0,
+      "map_mode": "pm1",
+      "enable": true,
+      "sat_enable": false,
+      "sat_min": -0.5,
+      "sat_max": 0.5
     }
   },
   "cdr": {
-    "pi": {
-      "kp": 0.01,
-      "ki": 1e-4
-    },
-    "pai": {
-      "resolution": 1e-12,
-      "range": 5e-11
-    }
+    "pi": { "kp": 0.01, "ki": 0.0001, "edge_threshold": 0.5, "adaptive_threshold": false },
+    "pai": { "resolution": 1e-12, "range": 5e-11 },
+    "ui": 1e-10,
+    "sample_point": 0.5,
+    "debug_enable": false
   },
   "clock": {
+    "_warning": "type 默认 PLL，但 PLL/ADPLL 模式当前为占位实现（见 clkGen.md）",
     "type": "PLL",
-    "frequency": 40e9,
-    "pd": "tri-state",
-    "cp": {
-      "I": 5e-5
-    },
-    "lf": {
-      "R": 10000,
-      "C": 1e-10
-    },
-    "vco": {
-      "Kvco": 1e8,
-      "f0": 1e10
-    },
-    "divider": 4
+    "frequency": 40000000000.0,
+    "pll": {
+      "pd_type": "tri-state",
+      "cp_current": 5e-05,
+      "lf_R": 10000.0,
+      "lf_C": 1e-10,
+      "vco_Kvco": 100000000.0,
+      "vco_f0": 10000000000.0,
+      "divider": 4
+    }
   },
   "eye": {
     "ui_bins": 128,
     "amp_bins": 128,
     "measure_length": 1e-4
+  },
+  "adaption": {
+    "Fs": 80000000000.0,
+    "UI": 2.5e-11,
+    "seed": 12345,
+    "update_mode": "multi-rate",
+    "fast_update_period": 2.5e-10,
+    "slow_update_period": 2.5e-7,
+    "agc": {
+      "enabled": true,
+      "target_amplitude": 0.4,
+      "kp": 0.1,
+      "ki": 100.0,
+      "gain_min": 0.5,
+      "gain_max": 8.0,
+      "rate_limit": 10.0,
+      "initial_gain": 2.0
+    },
+    "dfe": {
+      "enabled": true,
+      "num_taps": 5,
+      "algorithm": "sign-lms",
+      "mu": 0.125,
+      "leakage": 1e-6,
+      "initial_taps": [0.0, 0.0, 0.0, 0.0, 0.0],
+      "tap_min": -0.5,
+      "tap_max": 0.5,
+      "stats_period": 1024,
+      "mu_startup": 0.125,
+      "mu_acquire": 0.03125,
+      "mu_track": 0.0078125
+    },
+    "vref_adapt": {
+      "enabled": false,
+      "vref_pos": 0.15,
+      "vref_neg": -0.15,
+      "vref_initial": 0.15,
+      "target_confidence": 0.7,
+      "asymmetry_alert": 0.15,
+      "adapt_alpha": 0.05
+    },
+    "cdr_pi": {
+      "enabled": true,
+      "kp": 0.01,
+      "ki": 0.0001,
+      "phase_resolution": 1e-12,
+      "phase_range": 5e-11,
+      "anti_windup": true,
+      "initial_phase": 0.0
+    },
+    "safety": {
+      "freeze_on_error": true,
+      "rollback_enable": true,
+      "snapshot_interval": 1e-6,
+      "error_burst_threshold": 100
+    }
   }
 }

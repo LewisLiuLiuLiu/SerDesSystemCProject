@@ -332,6 +332,14 @@ if(TARGET test_channel_sparam_config)
 endif()
 
 # ============================================================================
+# ConfigLoader 单元测试（默认值单一事实源 / 覆盖语义 / fail-fast）
+# ============================================================================
+
+create_test_executables("config_loader")
+target_compile_definitions(test_config_loader PRIVATE
+    SERDES_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../config")
+
+# ============================================================================
 # 集成测试
 # ============================================================================
 
