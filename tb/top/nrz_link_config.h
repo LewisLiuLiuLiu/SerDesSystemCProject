@@ -144,6 +144,31 @@ struct NrzLinkConfig {
     }
     
     /**
+     * @brief 从 SystemParams（JSON 配置文件）覆盖子模块参数
+     *
+     * 说明：nrz 链路的时序体系（data_rate × oversampling 派生）与信道选择
+     * （ss/long/short）保持 nrz 原生控制；文件中的 global.Fs/UI 及派生字段
+     * （clock.frequency、dfe_summer.ui、cdr.ui、adaption.fast/slow_update_period）
+     * 会被 sync_ui() 重新派生并覆盖，冲突时给出告警。
+     */
+    void apply_system_params(const SystemParams& sp) {
+        wave = sp.wave;
+        tx = sp.tx;
+        rx = sp.rx;
+        rx.cdr = sp.cdr;            // 历史双份字段：顶层 cdr 为准
+        adaption = sp.adaption;
+        clock = sp.clock;
+        seed = sp.global.seed;
+        sim_duration = sp.global.duration;
+        if (sp.global.Fs != sample_rate() || sp.global.UI != ui()) {
+            std::cout << "[Config][warn] global.Fs/UI 在 nrz 链路中由 data_rate×oversampling 派生，"
+                      << "文件值被忽略（文件: Fs=" << sp.global.Fs << ", UI=" << sp.global.UI
+                      << "；派生: Fs=" << sample_rate() << ", UI=" << ui() << "）" << std::endl;
+        }
+        sync_ui();  // 按派生时序重新对齐 UI 相关字段
+    }
+    
+    /**
      * @brief 10Gbps NRZ 默认参数初始化
      */
     void init_10g_defaults() {

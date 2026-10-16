@@ -48,7 +48,16 @@ int sc_main(int argc, char* argv[]) {
     std::cout << "=== SerDes SystemC-AMS Simple Link Testbench ===" << std::endl;
     
     // 加载默认配置
-    SystemParams params = ConfigLoader::load_default();
+    // 加载配置：可选 [config.json]，缺省使用内置默认值
+    SystemParams params;
+    if (argc > 1) {
+        if (!ConfigLoader::loadFromFile(argv[1], params)) {
+            std::cerr << "配置加载失败，退出: " << argv[1] << std::endl;
+            return 1;
+        }
+    } else {
+        params = ConfigLoader::load_default();
+    }
     
     std::cout << "Configuration loaded:" << std::endl;
     std::cout << "  Sampling rate: " << params.global.Fs / 1e9 << " GHz" << std::endl;

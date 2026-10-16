@@ -1095,7 +1095,7 @@ sca_util::sca_trace(tf, sig_mux_out, "mux_out");
 **模块路径**：`include/de/config_loader.h`, `src/de/config_loader.cpp`
 
 **功能说明**：
-- 从 JSON/YAML 配置文件加载参数
+- 从 JSON 配置文件加载参数
 - 解析并填充到 `TxParams` 结构体
 - 提供参数验证和默认值处理
 
@@ -1474,7 +1474,7 @@ std::cout << "Mux output rate: " << tx_mux.out.get_rate() << std::endl;
 - **C++14 标准**：初始化列表、类型推断支持
 
 **运行时依赖**：
-- **配置加载器**：`ConfigLoader` 类（从 JSON/YAML 加载参数）
+- **配置加载器**：`ConfigLoader` 类（从 JSON 加载参数）
 - **上游模块**：TX FFE（`TxFfeTdf`）提供输入信号
 - **下游模块**：TX Driver（`TxDriverTdf`）接收输出信号
 

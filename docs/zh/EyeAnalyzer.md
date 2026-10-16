@@ -2001,7 +2001,7 @@ EyeAnalyzer作为SerDes项目的Python后处理组件，相关文件分布在项
 | **辅助工具** | `scripts/plot_ctle_waveform.py` | 波形可视化脚本（参考） |
 | | `scripts/run_ctle_tests.sh` | CTLE测试运行脚本（参考） |
 | **配置模板** | `config/default.json` | 项目默认JSON配置（含EyeAnalyzer参数） |
-| | `config/default.yaml` | 项目默认YAML配置（含EyeAnalyzer参数） |
+| | `config/default.json` | 项目默认YAML配置（含EyeAnalyzer参数） |
 | **文档** | `docs/modules/EyeAnalyzer.md` | 本技术文档 |
 | | `docs/checklist.md` | 模块文档检查清单 |
 | **项目构建** | `CMakeLists.txt` | CMake构建配置 |

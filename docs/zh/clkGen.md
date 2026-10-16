@@ -240,7 +240,7 @@ clk_phase.set_timestep(1.0 / (m_frequency * 100.0), sc_core::SC_SEC);
 验证时钟生成器在完整SerDes链路中的功能。
 
 - **测试平台**：`simple_link_tb.cpp`
-- **配置文件**：`config/default.yaml`
+- **配置文件**：`config/default.json`
 - **时钟配置**：40GHz理想时钟
 - **验证点**：
   - 链路能够正常启动和运行
@@ -251,7 +251,7 @@ clk_phase.set_timestep(1.0 / (m_frequency * 100.0), sc_core::SC_SEC);
 
 验证时间步自适应机制的正确性。
 
-- **测试方法**：修改`config/default.yaml`中的`clock.frequency`
+- **测试方法**：修改`config/default.json`中的`clock.frequency`
 - **测试频率**：10GHz、20GHz、40GHz、80GHz
 - **验证点**：
   - 10GHz：时间步长应为1ps
@@ -569,9 +569,9 @@ make clean
 
 #### 修改时钟配置
 
-时钟生成器的配置通过配置文件控制，支持JSON和YAML格式：
+时钟生成器的配置通过配置文件控制，支持JSON格式：
 
-**修改YAML配置文件**（`config/default.yaml`）：
+**修改JSON配置文件**（`config/default.json`）：
 ```yaml
 clock:
   type: PLL          # ⚠️ 注意：PLL模式当前未实现，仅支持IDEAL模式
@@ -1115,7 +1115,7 @@ if (m_phase >= 2.0 * M_PI) {
 | 头文件 | `/include/ams/clock_generation.h` | ClockGenerationTdf类声明 |
 | 实现文件 | `/src/ams/clock_generation.cpp` | ClockGenerationTdf类实现 |
 | 系统级测试 | `/tb/simple_link_tb.cpp` | SerDes链路集成测试 |
-| 配置文件 | `/config/default.yaml` | YAML格式默认配置 |
+| 配置文件 | `/config/default.json` | YAML格式默认配置 |
 | 配置文件 | `/config/default.json` | JSON格式默认配置 |
 | 环境脚本 | `/scripts/setup_env.sh` | SystemC/SystemC-AMS环境配置 |
 
@@ -1125,7 +1125,7 @@ if (m_phase >= 2.0 * M_PI) {
 - **头文件**：声明了ClockGenerationTdf类，继承自sca_tdf::sca_module
 - **实现文件**：实现了相位累加器、时间步自适应设置等核心功能
 - **系统级测试**：当前时钟生成器主要通过系统级测试验证功能
-- **配置文件**：支持YAML和JSON两种格式，通过ConfigLoader加载
+- **配置文件**：支持JSON两种格式，通过ConfigLoader加载
 
 ### 8.2 依赖项
 
@@ -1157,7 +1157,7 @@ if (m_phase >= 2.0 * M_PI) {
 
 #### 基本配置（理想时钟）
 
-**YAML格式**：
+**JSON格式**：
 ```yaml
 clock:
   type: IDEAL         # 时钟类型：IDEAL/PLL/ADPLL
@@ -1176,7 +1176,7 @@ clock:
 
 #### PLL配置（模拟锁相环）
 
-**YAML格式**：
+**JSON格式**：
 ```yaml
 clock:
   type: PLL
@@ -1223,7 +1223,7 @@ clock:
 
 #### ADPLL配置（全数字锁相环）
 
-**YAML格式**（未来实现）：
+**JSON格式**（未来实现）：
 ```yaml
 clock:
   type: ADPLL
@@ -1290,7 +1290,7 @@ clock:
 
 #### 完整系统配置示例
 
-**YAML格式**（`config/default.yaml`）：
+**JSON格式**（`config/default.json`）：
 ```yaml
 global:
   Fs: 80e9           # 采样率：80GHz

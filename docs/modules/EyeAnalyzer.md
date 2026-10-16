@@ -1659,7 +1659,7 @@ As a Python post-processing component of the SerDes project, EyeAnalyzer-related
 | **Auxiliary Tools** | `scripts/plot_ctle_waveform.py` | Waveform visualization script (reference) |
 | | `scripts/run_ctle_tests.sh` | CTLE test run script (reference) |
 | **Configuration Templates** | `config/default.json` | Project default JSON configuration (includes EyeAnalyzer parameters) |
-| | `config/default.yaml` | Project default YAML configuration (includes EyeAnalyzer parameters) |
+| | `config/default.json` | Project default YAML configuration (includes EyeAnalyzer parameters) |
 | **Documentation** | `docs/modules/EyeAnalyzer.md` | This technical document |
 | | `docs/checklist.md` | Module documentation checklist |
 | **Project Build** | `CMakeLists.txt` | CMake build configuration |

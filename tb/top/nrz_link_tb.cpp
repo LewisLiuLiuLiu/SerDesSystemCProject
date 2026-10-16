@@ -23,6 +23,7 @@
 #include "ams/tx_top.h"
 #include "ams/channel_sparam.h"
 #include "ams/rx_top.h"
+#include "de/config_loader.h"
 
 using namespace serdes;
 
@@ -703,6 +704,17 @@ int sc_main(int argc, char* argv[]) {
         else if (arg == "-o" && i + 1 < argc) {
             config.output_prefix = argv[++i];
         }
+        else if (arg == "--config" && i + 1 < argc) {
+            std::string cfg_file = argv[++i];
+            std::cout << "Loading SystemParams config: " << cfg_file << std::endl;
+            SystemParams sp;
+            if (!ConfigLoader::loadFromFile(cfg_file, sp)) {
+                std::cerr << "配置加载失败: " << cfg_file << std::endl;
+                return 1;
+            }
+            config.apply_system_params(sp);
+            std::cout << "Config applied to link (timing fields re-derived by link)." << std::endl;
+        }
         else if (arg == "-h" || arg == "--help") {
             std::cout << "\nUsage: nrz_link_tb [options]\n" << std::endl;
             std::cout << "Options:" << std::endl;
@@ -712,6 +724,8 @@ int sc_main(int argc, char* argv[]) {
             std::cout << "  ss <file>   Use State Space channel from JSON" << std::endl;
             std::cout << "  -d <ui>     Set duration in UI count" << std::endl;
             std::cout << "  -o <prefix> Set output file prefix" << std::endl;
+            std::cout << "  --config <f> Load SystemParams JSON (rx/adaption/tx/wave/clock 子节覆盖；"
+                         "链路时序字段仍由 data_rate×oversampling 派生)" << std::endl;
             return 0;
         }
     }

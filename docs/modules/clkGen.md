@@ -240,7 +240,7 @@ The Clock Generator functionality is currently verified through system-level tes
 Verify the Clock Generator functionality in the complete SerDes link.
 
 - **Testbench**: `simple_link_tb.cpp`
-- **Configuration File**: `config/default.yaml`
+- **Configuration File**: `config/default.json`
 - **Clock Configuration**: 40GHz ideal clock
 - **Verification Points**:
   - Link can start and run normally
@@ -251,7 +251,7 @@ Verify the Clock Generator functionality in the complete SerDes link.
 
 Verify the correctness of the time step adaptive mechanism.
 
-- **Test Method**: Modify `clock.frequency` in `config/default.yaml`
+- **Test Method**: Modify `clock.frequency` in `config/default.json`
 - **Test Frequencies**: 10GHz, 20GHz, 40GHz, 80GHz
 - **Verification Points**:
   - 10GHz: Time step should be 1ps
@@ -571,7 +571,7 @@ make clean
 
 Clock Generator configuration is controlled through configuration files, supporting JSON and YAML formats:
 
-**Modify YAML Configuration File** (`config/default.yaml`):
+**Modify JSON Configuration File** (`config/default.json`):
 ```yaml
 clock:
   type: PLL          # ⚠️ Note: PLL mode not currently implemented, only IDEAL mode supported
@@ -1115,7 +1115,7 @@ Although the current implementation only supports ideal clocks, the PLL paramete
 | Header File | `/include/ams/clock_generation.h` | ClockGenerationTdf class declaration |
 | Implementation File | `/src/ams/clock_generation.cpp` | ClockGenerationTdf class implementation |
 | System-level Test | `/tb/simple_link_tb.cpp` | SerDes link integration test |
-| Configuration File | `/config/default.yaml` | YAML format default configuration |
+| Configuration File | `/config/default.json` | YAML format default configuration |
 | Configuration File | `/config/default.json` | JSON format default configuration |
 | Environment Script | `/scripts/setup_env.sh` | SystemC/SystemC-AMS environment configuration |
 
@@ -1157,7 +1157,7 @@ Although the current implementation only supports ideal clocks, the PLL paramete
 
 #### Basic Configuration (Ideal Clock)
 
-**YAML Format**:
+**JSON Format**:
 ```yaml
 clock:
   type: IDEAL         # Clock type: IDEAL/PLL/ADPLL
@@ -1176,7 +1176,7 @@ clock:
 
 #### PLL Configuration (Analog Phase-Locked Loop)
 
-**YAML Format**:
+**JSON Format**:
 ```yaml
 clock:
   type: PLL
@@ -1223,7 +1223,7 @@ clock:
 
 #### ADPLL Configuration (All-Digital Phase-Locked Loop)
 
-**YAML Format** (Future implementation):
+**JSON Format** (Future implementation):
 ```yaml
 clock:
   type: ADPLL
@@ -1290,7 +1290,7 @@ clock:
 
 #### Complete System Configuration Example
 
-**YAML Format** (`config/default.yaml`):
+**JSON Format** (`config/default.json`):
 ```yaml
 global:
   Fs: 80e9           # Sampling rate: 80GHz

@@ -1097,7 +1097,7 @@ sca_util::sca_trace(tf, sig_mux_out, "mux_out");
 **Module Path**: `include/de/config_loader.h`, `src/de/config_loader.cpp`
 
 **Function Description**:
-- Loads parameters from JSON/YAML configuration files
+- Loads parameters from JSON configuration files
 - Parses and populates to `TxParams` structure
 - Provides parameter validation and default value handling
 
@@ -1476,7 +1476,7 @@ Future versions need to select delay implementation schemes, each with trade-off
 - **C++14 Standard**: Initialization lists, type inference support
 
 **Runtime Dependencies**:
-- **Configuration Loader**: `ConfigLoader` class (loads parameters from JSON/YAML)
+- **Configuration Loader**: `ConfigLoader` class (loads parameters from JSON)
 - **Upstream Module**: TX FFE (`TxFfeTdf`) provides input signals
 - **Downstream Module**: TX Driver (`TxDriverTdf`) receives output signals
 

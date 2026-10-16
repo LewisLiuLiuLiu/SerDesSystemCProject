@@ -69,7 +69,7 @@ The core design philosophy of the Adaption module is to establish a multi-level,
 
 - **Parameter Constraints and Clamping**: All output parameters support range limits (gain_min/max, tap_min/max, phase_range), rate limits (gain change rate limits), and anti-windup (CDR PI controller), preventing parameter divergence
 
-- **Configuration-Driven Design**: Manages all algorithm parameters through JSON/YAML configuration files, supporting runtime scenario switching and parameter reloading, facilitating rapid verification of different channels and rate scenarios
+- **Configuration-Driven Design**: Manages all algorithm parameters through JSON configuration files, supporting runtime scenario switching and parameter reloading, facilitating rapid verification of different channels and rate scenarios
 
 - **Trace and Diagnostics**: Outputs critical signal time series (vga_gain, dfe_taps, sampler_threshold, phase_cmd, update_count, freeze_flag), supporting post-processing analysis and regression verification
 
@@ -553,7 +553,7 @@ Simulates abnormal scenarios to verify freeze/rollback mechanism.
 
 Manages multi-scenario switching and configuration loading.
 
-- **Configuration Loading**: Load scenario parameters from JSON/YAML files
+- **Configuration Loading**: Load scenario parameters from JSON files
 - **Scenario Switching**: Trigger scenario switch events, update all parameters
 - **Anti-Shake Strategy**: Enter training period after switch, freeze error statistics
 - **History Record**: Record scenario switch time and parameter snapshots
@@ -2037,7 +2037,7 @@ T clamp(T value, T min_val, T max_val) {
 | Test Helpers | `/tb/adaption/adaption_helpers.h` | Helper modules (TraceMonitor, FaultInjector, ScenarioManager) |
 | Unit Test | `/tests/unit/test_adaption_basic.cpp` | GoogleTest unit tests (AGC, DFE, Threshold, CDR PI) |
 | Config File | `/config/default.json` | Default configuration (JSON format) |
-| Config File | `/config/default.yaml` | Default configuration (YAML format) |
+| Config File | `/config/default.json` | Default configuration (YAML format) |
 | Waveform Plotting | `/scripts/plot_adaption_results.py` | Python visualization script (convergence curves, eye diagram comparison) |
 
 ### 8.2 Dependencies

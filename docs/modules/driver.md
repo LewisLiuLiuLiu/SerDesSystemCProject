@@ -148,7 +148,7 @@ TX Driver adopts a differential architecture; all signal ports are TDF domain an
 
 ### 2.2 Parameter Configuration (TxDriverParams)
 
-All configurable parameters of TX Driver are defined through the `TxDriverParams` structure, supporting JSON/YAML configuration file loading.
+All configurable parameters of TX Driver are defined through the `TxDriverParams` structure, supporting JSON configuration file loading.
 
 #### Basic Parameters
 
@@ -1826,7 +1826,7 @@ int sc_main(int argc, char* argv[]) {
     
     // 2. 加载配置文件
     std::string config_file = "config/driver_test_" + scenario + ".json";
-    auto params = ConfigLoader::load(config_file);
+    auto params = ConfigLoader::loadFromFile(config_file);
     
     // 3. 实例化模块
     DiffSignalSource diff_source("DiffSignalSource", params.signal_source);
@@ -5570,7 +5570,7 @@ pip install -r scripts/requirements.txt
 ```cpp
 if (scenario == "custom") {
     // 自定义场景的特殊处理
-    params = ConfigLoader::load("config/driver_test_custom.json");
+    params = ConfigLoader::loadFromFile("config/driver_test_custom.json");
 }
 ```
 

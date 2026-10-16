@@ -58,7 +58,7 @@ serdes/
 │   │   └── clock_generation.h  # Clock generation
 │   ├── common/                 # Common types, parameters, constants
 │   └── de/                     # DE domain modules
-│       └── config_loader.h     # JSON/YAML config loader
+│       └── config_loader.h     # JSON config loader
 ├── src/                        # Implementation files
 │   ├── ams/                    # AMS module implementations
 │   └── de/                     # DE module implementations
@@ -76,8 +76,7 @@ serdes/
 │   ├── analyze_serdes_link.py  # Link result analysis
 │   └── vector_fitting.py       # S-parameter vector fitting
 ├── config/                     # Configuration templates
-│   ├── default.json            # Default configuration
-│   └── default.yaml
+│   └── default.json            # Default configuration (ConfigLoader; JSON only)
 └── docs/modules/               # Module documentation
 ```
 

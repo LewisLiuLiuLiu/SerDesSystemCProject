@@ -57,7 +57,7 @@ serdes/
 │   │   └── clock_generation.h  # 时钟生成
 │   ├── common/                 # 公共类型、参数、常量
 │   └── de/                     # DE 域模块
-│       └── config_loader.h     # JSON/YAML 配置加载
+│       └── config_loader.h     # JSON 配置加载
 ├── src/                        # 实现文件
 │   ├── ams/                    # AMS 模块实现
 │   └── de/                     # DE 模块实现
@@ -75,8 +75,7 @@ serdes/
 │   ├── analyze_serdes_link.py  # 链路结果分析
 │   └── vector_fitting.py       # S参数向量拟合
 ├── config/                     # 配置模板
-│   ├── default.json            # 默认配置
-│   └── default.yaml
+│   └── default.json            # 默认配置（ConfigLoader，仅 JSON）
 └── docs/zh/modules/               # 模块文档
 ```
 

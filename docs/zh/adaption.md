@@ -68,7 +68,7 @@ Adaption 模块的核心设计思想是建立多层次、多速率的自适应�
 
 - **参数约束与钳位**：所有输出参数支持范围限制（gain_min/max、tap_min/max、phase_range）、速率限制（增益变化率限制）、抗积分饱和（CDR PI 控制器），防止参数发散
 
-- **配置驱动设计**：通过 JSON/YAML 配置文件管理所有算法参数，支持运行时场景切换与参数重载，便于不同通道与速率场景的快速验证
+- **配置驱动设计**：通过 JSON 配置文件管理所有算法参数，支持运行时场景切换与参数重载，便于不同通道与速率场景的快速验证
 
 - **Trace 与诊断**：输出关键信号时间序列（vga_gain、dfe_taps、sampler_threshold、phase_cmd、update_count、freeze_flag），支持后处理分析与回归验证
 
@@ -550,7 +550,7 @@ Adaption 测试平台（`AdaptionTestbench`）采用多场景驱动的分层测�
 
 管理多场景切换与配置加载。
 
-- **配置加载**：从 JSON/YAML 文件加载场景参数
+- **配置加载**：从 JSON 文件加载场景参数
 - **场景切换**：触发场景切换事件，更新所有参数
 - **防抖策略**：切换后进入训练期，冻结误码统计
 - **历史记录**：记录场景切换时间与参数快照
@@ -2034,7 +2034,7 @@ T clamp(T value, T min_val, T max_val) {
 | 测试辅助 | `/tb/adaption/adaption_helpers.h` | 辅助模块（TraceMonitor、FaultInjector、ScenarioManager） |
 | 单元测试 | `/tests/unit/test_adaption_basic.cpp` | GoogleTest 单元测试（AGC、DFE、阈值、CDR PI） |
 | 配置文件 | `/config/default.json` | 默认配置（JSON 格式） |
-| 配置文件 | `/config/default.yaml` | 默认配置（YAML 格式） |
+| 配置文件 | `/config/default.json` | 默认配置（YAML 格式） |
 | 波形绘图 | `/scripts/plot_adaption_results.py` | Python 可视化脚本（收敛曲线、眼图对比） |
 
 ### 8.2 依赖项
