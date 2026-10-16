@@ -26,6 +26,7 @@ public:
     // ========================================================================
     sc_core::sc_in<double> phase_error;       // Phase error from CDR (s or normalized UI)
     sc_core::sc_in<double> amplitude_rms;     // Amplitude RMS from RX amplitude statistics
+    sc_core::sc_in<bool> gain_saturated;      // AGC 饱和互锁：VGA 接近限幅时禁止上调增益
     sc_core::sc_in<int> mode;                 // Operating mode: 0=init, 1=training, 2=data, 3=freeze
     sc_core::sc_in<bool> reset;               // Global reset signal
     sc_core::sc_in<double> scenario_switch;   // Scenario switch event (optional)
@@ -124,6 +125,7 @@ private:
     int m_fast_update_count;        // Fast path update count
     int m_slow_update_count;        // Slow path update count
     bool m_freeze_flag;             // Freeze flag
+    bool m_signal_present;          // 信号已建立（幅度曾超过阈值）——启动阶段不触发幅度冻结
 
     // Snapshot structure for rollback
     struct Snapshot {
@@ -199,6 +201,12 @@ private:
      * @return true if should freeze
      */
     bool check_freeze_condition();
+
+    /**
+     * @brief 更新“信号已建立”锁存：幅度首次超过存活阈值后置位。
+     *        启动阶段（信号尚未建立）不做幅度下限冻结与 AGC 更新。
+     */
+    void update_signal_present();
 
     /**
      * @brief Save current parameters to snapshot

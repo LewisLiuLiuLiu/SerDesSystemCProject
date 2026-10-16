@@ -11,6 +11,7 @@ RxVgaTdf::RxVgaTdf(sc_core::sc_module_name nm, const RxVgaParams& params)
     , vdd("vdd")
     , out_p("out_p")
     , out_n("out_n")
+    , gain_cmd_de("gain_cmd_de")
     , m_params(params)
     , m_vga_filter_enabled(false)
     , m_psrr_enabled(false)
@@ -113,6 +114,15 @@ void RxVgaTdf::processing() {
     } else {
         // Fallback to simple DC gain
         vout_diff_linear = m_params.dc_gain * vin_diff;
+    }
+    
+    // Step 4b: AGC gain command overlay.
+    // The LTF was built with the static dc_gain baked in; scale it by
+    // cmd/dc_gain so a runtime gain command takes effect without
+    // rebuilding filter coefficients. cmd <= 0 keeps the static gain.
+    double gain_cmd = gain_cmd_de.read();
+    if (gain_cmd > 0.0 && m_params.dc_gain > 0.0) {
+        vout_diff_linear *= gain_cmd / m_params.dc_gain;
     }
     
     // Step 5: Apply soft saturation (tanh)

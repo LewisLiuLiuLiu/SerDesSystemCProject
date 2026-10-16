@@ -179,6 +179,7 @@ public:
     sc_core::sc_signal<int> sig_mode;
     sc_core::sc_signal<bool> sig_reset;
     sc_core::sc_signal<double> sig_scenario_switch;
+    sc_core::sc_signal<bool> sig_gain_saturated;  // AGC 饱和互锁输入
     
     // Statistics signals (from StatsSource)
     sc_core::sc_signal<int> sig_stat_N_A;
@@ -235,6 +236,7 @@ public:
         // Connect adaption inputs
         adaption->phase_error(sig_phase_error);
         adaption->amplitude_rms(sig_amplitude_rms);
+        adaption->gain_saturated(sig_gain_saturated);
         adaption->mode(sig_mode);
         adaption->reset(sig_reset);
         adaption->scenario_switch(sig_scenario_switch);
@@ -268,6 +270,7 @@ public:
     
     double get_vga_gain() { return sig_vga_gain.read(); }
     double get_phase_cmd() { return sig_phase_cmd.read(); }
+    void set_gain_saturated(bool v) { sig_gain_saturated.write(v); }
     double get_threshold() { return sig_sampler_threshold.read(); }
     double get_hysteresis() { return sig_sampler_hysteresis.read(); }
     double get_vref_cmd() { return sig_vref_cmd.read(); }

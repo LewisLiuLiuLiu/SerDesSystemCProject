@@ -62,6 +62,9 @@ set(ADAPTION_TESTS
     adaption_agc_basic              # AGC基础测试
     adaption_agc_convergence        # AGC收敛测试
     adaption_agc_rate_limit         # AGC速率限制测试
+    adaption_agc_interlock          # AGC饱和互锁测试
+    adaption_agc_decrease           # AGC下调方向测试
+    amplitude_estimator             # AGC幅度检测器（EMA + 饱和标志）
     adaption_dfe_basic              # DFE基础测试
     adaption_dfe_sign_lms           # DFE Sign LMS算法测试
     adaption_dfe_lms                # DFE LMS算法测试
@@ -257,6 +260,7 @@ create_test_executables("${DFE_TESTS}")
 set(CTLE_VGA_TESTS
     ctle_basic                      # CTLE基础测试
     vga_basic                       # VGA基础测试
+    vga_gain_command                # VGA AGC增益命令端口测试
 )
 
 create_test_executables("${CTLE_VGA_TESTS}")

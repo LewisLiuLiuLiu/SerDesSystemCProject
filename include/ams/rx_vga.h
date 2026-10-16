@@ -34,6 +34,12 @@ public:
     sca_tdf::sca_out<double> out_p;
     sca_tdf::sca_out<double> out_n;
     
+    // AGC gain command (DE domain, from AdaptionDe)
+    // Linear gain. When > 0 it overrides the static dc_gain by scaling the
+    // fixed transfer function (which embeds dc_gain) by cmd/dc_gain at
+    // runtime. When <= 0 (e.g. unbound/driven 0), the static dc_gain is used.
+    sca_tdf::sca_de::sca_in<double> gain_cmd_de;
+    
     /**
      * @brief Constructor
      * @param nm Module name

@@ -25,6 +25,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     , m_sig_cdr_in("sig_cdr_in")
     , m_sig_data_feedback("sig_data_feedback")
     , m_sig_clk("sig_clk")
+    , m_sig_amp_est_out("sig_amp_est_out")
     // DfeAdaptTdf -> DFE Summer taps
     , m_sig_dfe_tap1_de("sig_dfe_tap1_de")
     , m_sig_dfe_tap2_de("sig_dfe_tap2_de")
@@ -60,6 +61,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     , m_sig_phase_error_de("sig_phase_error_de")
     , m_sig_amplitude_rms_de("sig_amplitude_rms_de")
     , m_sig_scenario_switch_de("sig_scenario_switch_de")
+    , m_sig_gain_saturated_de("sig_gain_saturated_de")
     // AdaptionDe monitoring outputs
     , m_sig_ctle_zero_de("sig_ctle_zero_de")
     , m_sig_ctle_pole_de("sig_ctle_pole_de")
@@ -101,6 +103,16 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
 
     m_cdr = new RxCdrTdf("cdr", m_params.cdr);
 
+    // AGC 幅度检测器：EMA(|v_p - v_n|) at VGA output.
+    // tau ≈ 256 UI（默认 ~6.4ns @25ps UI）；DE 刷新为慢路径周期的 1/10，
+    // 保证每次慢路径读取时值足够新鲜，同时避免逐采样刷新 DE 事件。
+    const double amp_est_tau = 256.0 * m_adaption_params.UI;
+    const double vga_sat_level =
+        0.5 * (m_params.vga.sat_max - m_params.vga.sat_min);
+    const double amp_est_de_interval = m_adaption_params.slow_update_period / 10.0;
+    m_amp_est = new AmplitudeEstimatorTdf("amp_est", amp_est_tau,
+                                          vga_sat_level, amp_est_de_interval);
+
     // DFE Adaptation Engine (TDF domain, Plan A)
     m_dfe_adapt = new DfeAdaptTdf("dfe_adapt",
                                    m_adaption_params.dfe,
@@ -137,6 +149,15 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_vga->vdd(vdd);
     m_vga->out_p(m_sig_vga_out_p);
     m_vga->out_n(m_sig_vga_out_n);
+    // AGC 增益命令（AdaptionDe → VGA）
+    m_vga->gain_cmd_de(m_sig_vga_gain_de);
+    
+    // AGC 幅度检测器：tap VGA 输出；EMA → AdaptionDe；饱和标志 → 互锁
+    m_amp_est->in_p(m_sig_vga_out_p);
+    m_amp_est->in_n(m_sig_vga_out_n);
+    m_amp_est->amplitude(m_sig_amp_est_out);
+    m_amp_est->amplitude_de(m_sig_amplitude_rms_de);
+    m_amp_est->saturated_de(m_sig_gain_saturated_de);
 
     m_dfe_summer->in_p(m_sig_vga_out_p);
     m_dfe_summer->in_n(m_sig_vga_out_n);
@@ -276,6 +297,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     // AdaptionDe inputs
     m_adaption->phase_error(m_sig_phase_error_de);
     m_adaption->amplitude_rms(m_sig_amplitude_rms_de);
+    m_adaption->gain_saturated(m_sig_gain_saturated_de);
     m_adaption->mode(m_sig_mode_de);
     m_adaption->reset(m_sig_reset_de);
     m_adaption->scenario_switch(m_sig_scenario_switch_de);
@@ -294,8 +316,9 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     // ========================================================================
     // Initialize DE signals with default values
     // ========================================================================
-    m_sig_phase_error_de.write(0.0);
-    m_sig_amplitude_rms_de.write(0.4);
+    m_sig_phase_error_de.write(0.0);   // TODO(batch 2): CDR → AdaptionDe 相位误差闭环
+    // 注意：m_sig_amplitude_rms_de 现由幅度检测器（sca_de::sca_out）驱动，
+    // 不能再在此处写入（会触发 sc_signal 多驱动器错误 E115）。
     m_sig_mode_de.write(2);        // Data mode from start
     m_sig_reset_de.write(false);
     m_sig_scenario_switch_de.write(0.0);
@@ -311,6 +334,7 @@ RxTopModule::~RxTopModule()
     delete m_vref_neg_sampler;
     delete m_cdr;
     delete m_dfe_adapt;
+    delete m_amp_est;
     delete m_adaption;
     delete m_clk_src;
     delete m_data_out_tap;

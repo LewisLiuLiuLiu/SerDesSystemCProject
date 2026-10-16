@@ -15,6 +15,7 @@
 #include "ams/adaption.h"
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 
 namespace serdes {
 
@@ -26,6 +27,7 @@ AdaptionDe::AdaptionDe(sc_core::sc_module_name nm, const AdaptionParams& params)
     // Input ports
     , phase_error("phase_error")
     , amplitude_rms("amplitude_rms")
+    , gain_saturated("gain_saturated")
     , mode("mode")
     , reset("reset")
     , scenario_switch("scenario_switch")
@@ -53,6 +55,13 @@ AdaptionDe::AdaptionDe(sc_core::sc_module_name nm, const AdaptionParams& params)
     // Parameters
     , m_params(params)
 {
+    // 参数校验（fail-fast）：非法周期会让 wait() 行为异常（0 → 死循环，
+    // 负值/NaN → 时间溢出），必须在构造期拒绝。
+    if (!(params.fast_update_period > 0.0) || !(params.slow_update_period > 0.0)) {
+        throw std::invalid_argument(
+            "AdaptionDe: fast_update_period and slow_update_period must be > 0");
+    }
+
     // Initialize timing
     m_fast_period = sc_core::sc_time(params.fast_update_period, sc_core::SC_SEC);
     m_slow_period = sc_core::sc_time(params.slow_update_period, sc_core::SC_SEC);
@@ -103,6 +112,7 @@ void AdaptionDe::initialize_state() {
     m_fast_update_count = 0;
     m_slow_update_count = 0;
     m_freeze_flag = false;
+    m_signal_present = false;
 
     // Snapshot management
     m_snapshots.clear();
@@ -134,6 +144,8 @@ void AdaptionDe::fast_path_process() {
 
     while (true) {
         wait(m_fast_period);
+
+        update_signal_present();
 
         int current_mode = mode.read();
         if (current_mode == 3 || m_freeze_flag) {
@@ -177,6 +189,8 @@ void AdaptionDe::slow_path_process() {
     while (true) {
         wait(m_slow_period);
 
+        update_signal_present();
+
         int current_mode = mode.read();
         if (current_mode == 3 || m_freeze_flag) {
             continue;
@@ -192,7 +206,10 @@ void AdaptionDe::slow_path_process() {
         }
 
         // AGC Update
-        if (m_params.agc.enabled && (current_mode == 1 || current_mode == 2)) {
+        // 信号尚未建立前不更新（避免空输入把增益盲推到上限；
+        // 检测器 EMA 建立后（> 存活阈值）恢复正常 PI 控制）。
+        if (m_params.agc.enabled && m_signal_present &&
+            (current_mode == 1 || current_mode == 2)) {
             double amp = amplitude_rms.read();
             m_current_gain = agc_pi_update(amp);
             vga_gain.write(m_current_gain);
@@ -210,15 +227,31 @@ void AdaptionDe::slow_path_process() {
 }
 
 // ============================================================================
-// AGC PI Controller Update
+// AGC PI Controller Update（位置式 PI，2026-10 修复）
 // ============================================================================
+// 旧实现 new_gain = current_gain + P + I 把积分项累积到“当前增益”上，
+// 等效于对积分做了二次积分（增益以 t² 发散）。正确的位置式形式为：
+//   gain = gain_initial + Kp * e + Σ Ki * e * T
+// 另加入 (v1) 饱和互锁：VGA 输出接近限幅时误差信号失真，禁止上调用，
+// 并做积分限幅防止风卷。
 double AdaptionDe::agc_pi_update(double amplitude) {
     double amp_error = m_params.agc.target_amplitude - amplitude;
+
+    // 饱和互锁（v1）：接近限幅时增益上调已无法提升幅度 → 冻结正误差
+    if (gain_saturated.read() && amp_error > 0.0) {
+        amp_error = 0.0;
+    }
 
     double P = m_params.agc.kp * amp_error;
     m_agc_integral += m_params.agc.ki * amp_error * m_params.slow_update_period;
 
-    double new_gain = m_current_gain + P + m_agc_integral;
+    // 积分限幅：保证 initial + I 不逃逸 [gain_min, gain_max] 量程
+    m_agc_integral = clamp(m_agc_integral,
+                           m_params.agc.gain_min - m_params.agc.initial_gain,
+                           m_params.agc.gain_max - m_params.agc.initial_gain);
+
+    // 位置式：以配置初值 + (P + I) 给出绝对增益
+    double new_gain = m_params.agc.initial_gain + P + m_agc_integral;
 
     new_gain = clamp(new_gain, m_params.agc.gain_min, m_params.agc.gain_max);
 
@@ -228,6 +261,8 @@ double AdaptionDe::agc_pi_update(double amplitude) {
         double sign = (gain_change > 0) ? 1.0 : -1.0;
         new_gain = m_prev_gain + sign * max_change;
     }
+
+    new_gain = clamp(new_gain, m_params.agc.gain_min, m_params.agc.gain_max);
 
     m_prev_gain = new_gain;
     return new_gain;
@@ -305,9 +340,13 @@ void AdaptionDe::update_vref_command() {
 // Safety Methods
 // ============================================================================
 bool AdaptionDe::check_freeze_condition() {
-    // Check for amplitude anomaly
+    // 幅度异常：信号已建立后消失（< 0.01）才算异常；
+    // 仿真启动阶段（信号尚未建立）不触发幅度冻结。
     double amp = amplitude_rms.read();
-    if (amp < 0.01 || amp > 2.0) {
+    if (m_signal_present && amp < 0.01) {
+        return true;
+    }
+    if (amp > 2.0) {
         return true;
     }
 
@@ -318,6 +357,14 @@ bool AdaptionDe::check_freeze_condition() {
     }
 
     return false;
+}
+
+void AdaptionDe::update_signal_present() {
+    // 存活阈值 0.02V：大于它认为信号已建立（对 EMA 检测器而言
+    // 启动斜坡需要数个 tau，短仿真窗口内不会误置位）。
+    if (!m_signal_present && amplitude_rms.read() > 0.02) {
+        m_signal_present = true;
+    }
 }
 
 void AdaptionDe::save_snapshot() {

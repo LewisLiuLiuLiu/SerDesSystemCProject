@@ -32,6 +32,7 @@ SC_MODULE(VgaTransientTestbench) {
     sca_tdf::sca_signal<double> sig_vdd;
     sca_tdf::sca_signal<double> sig_out_p;
     sca_tdf::sca_signal<double> sig_out_n;
+    sc_core::sc_signal<double> sig_gain_cmd;  // AGC 增益命令（本 TB 不用 → 0 = 静态增益）
     
     TestScenario m_scenario;
     RxVgaParams m_params;
@@ -69,6 +70,7 @@ SC_MODULE(VgaTransientTestbench) {
         vga->vdd(sig_vdd);
         vga->out_p(sig_out_p);
         vga->out_n(sig_out_n);
+        vga->gain_cmd_de(sig_gain_cmd);
         
         monitor->in_p(sig_out_p);
         monitor->in_n(sig_out_n);

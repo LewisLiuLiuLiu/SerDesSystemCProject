@@ -110,6 +110,7 @@ SC_MODULE(VgaBasicTestbench) {
     sca_tdf::sca_signal<double> sig_vdd;
     sca_tdf::sca_signal<double> sig_out_p;
     sca_tdf::sca_signal<double> sig_out_n;
+    sc_core::sc_signal<double> sig_gain_cmd;  // AGC 增益命令（本测试不用 → 0 = 静态增益）
     
     RxVgaParams params;
     double input_amplitude;
@@ -134,6 +135,7 @@ SC_MODULE(VgaBasicTestbench) {
         vga->vdd(sig_vdd);
         vga->out_p(sig_out_p);
         vga->out_n(sig_out_n);
+        vga->gain_cmd_de(sig_gain_cmd);
     }
     
     ~VgaBasicTestbench() {

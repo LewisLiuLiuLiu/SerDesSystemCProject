@@ -10,6 +10,7 @@
 #include "ams/rx_cdr.h"
 #include "ams/adaption.h"
 #include "ams/dfe_adapt_tdf.h"
+#include "ams/amplitude_estimator.h"
 
 namespace serdes {
 
@@ -72,6 +73,11 @@ public:
         return m_sig_dfe_out_n;
     }
 
+    /// AGC amplitude estimator output EMA (monitoring)
+    const sca_tdf::sca_signal<double>& get_amplitude_est_signal() const {
+        return m_sig_amp_est_out;
+    }
+
     double get_cdr_phase() const;
     double get_cdr_integral_state() const;
 
@@ -109,6 +115,7 @@ private:
     RxSamplerTdf* m_vref_neg_sampler;     // -Vref comparator (thr=-Vref, s'_k)
     RxCdrTdf* m_cdr;
     DfeAdaptTdf* m_dfe_adapt;             // DFE adaptation engine (TDF domain)
+    AmplitudeEstimatorTdf* m_amp_est;     // AGC amplitude detector (TDF domain)
 
     // ========================================================================
     // Sub-modules (DE domain)
@@ -136,6 +143,7 @@ private:
     sca_tdf::sca_signal<bool> m_sig_sampling_trigger;
     sca_tdf::sca_signal<double> m_sig_data_feedback;
     sca_tdf::sca_signal<double> m_sig_clk;
+    sca_tdf::sca_signal<double> m_sig_amp_est_out;      // AGC 检测器 EMA（监测）
 
     // ========================================================================
     // DE-TDF Bridge Signals
@@ -184,8 +192,10 @@ private:
 
     // CDR -> AdaptionDe (phase error)
     sc_core::sc_signal<double> m_sig_phase_error_de;
-    sc_core::sc_signal<double> m_sig_amplitude_rms_de;
+    sc_core::sc_signal<double> m_sig_amplitude_rms_de;   // AGC 检测器 → AdaptionDe
     sc_core::sc_signal<double> m_sig_scenario_switch_de;
+    // AGC 饱和互锁（检测器 → AdaptionDe）
+    sc_core::sc_signal<bool> m_sig_gain_saturated_de;
 
     // AdaptionDe outputs (monitoring)
     sc_core::sc_signal<double> m_sig_ctle_zero_de;

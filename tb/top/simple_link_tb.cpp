@@ -82,6 +82,7 @@ int sc_main(int argc, char* argv[]) {
     sca_tdf::sca_signal<double> sig_vga_out_n;     // VGA 差分负端输出（未使用）
     sca_tdf::sca_signal<bool> sig_sampling_trigger;  // CDR -> Sampler 采样触发
     sc_core::sc_signal<bool> sig_sampler_de_dummy;   // Sampler DE 输出（未使用）
+    sc_core::sc_signal<double> sig_vga_gain_cmd_de;  // VGA AGC 增益命令（未使用 → 0 = 静态增益）
     
     // 常量源（差分负端 / vdd 供电）
     ConstSource v_zero("v_zero", 0.0, params.global.Fs);
@@ -141,6 +142,7 @@ int sc_main(int argc, char* argv[]) {
     rx_vga.vdd(sig_vdd);
     rx_vga.out_p(sig_vga_out);
     rx_vga.out_n(sig_vga_out_n);
+    rx_vga.gain_cmd_de(sig_vga_gain_cmd_de);
     rx_sampler.in_p(sig_vga_out);
     rx_sampler.in_n(sig_zero);
     rx_sampler.clk_sample(sig_zero);        // 未使用（触发式采样），绑定以满足精化要求
