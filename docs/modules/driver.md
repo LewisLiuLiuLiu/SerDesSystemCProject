@@ -7,6 +7,8 @@
 **Current Version**: v1.0 (2026-01-13)  
 **Status**: In Development
 
+> **Semantics revision note (2026-10)**: `vswing` now means **channel-side** differential Vpp (after impedance division); soft saturation is **unit-gain** `Vsat·tanh(x/Vsat)` and `vlin` is deprecated (ignored, kept only for config compatibility). The parameter tables and Step-4 formulas in this document are synced; legacy vlin formulas in later THD/design-exploration chapters are historical records and no longer describe the implementation.
+
 ---
 
 ## 1. Overview
@@ -154,20 +156,20 @@ All configurable parameters of TX Driver are defined through the `TxDriverParams
 
 | Parameter | Type | Default | Unit | Description |
 |------|------|--------|------|------|
-| `dc_gain` | double | 1.0 | - | DC gain (linear multiplier, Vout_pp/Vin_pp) |
-| `vswing` | double | 0.8 | V | 差分Output摆幅（峰峰值），实际摆幅范围：±vswing/2 |
+| `dc_gain` | double | 1.0 | - | DC gain (linear multiplier, Vout_pp/Vin_pp)；soft saturation 后唯一增益旋钮 |
+| `vswing` | double | 0.8 | V | **Channel-side** differential swing Vpp (after impedance division)；内部限幅电平按 1/vdf 自动放大，使信道侧摆幅 = vswing（2026-10 语义修订） |
 | `vcm_out` | double | 0.6 | V | Output共模电压，DC耦合链路需精确控制 |
 | `output_impedance` | double | 50.0 | Ω | Output阻抗（差分），通常匹配传输线特性阻抗Z0 |
 | `poles` | vector&lt;double&gt; | [50e9] | Hz | Pole frequency list, defines bandwidth limitation characteristics |
 | `sat_mode` | string | "soft" | - | 饱and模式："soft"（tanh）、"hard"（clamp）、"none"（无饱and） |
-| `vlin` | double | 1.0 | V | 软饱and线性区参数，tanh函数的线性Input范围 |
+| `vlin` | double | 1.0 | V | **DEPRECATED（已忽略，2026-10）**：soft saturation 改为单位增益 tanh，vlin 不再参与计算，仅为旧配置兼容保留 |
 
 #### Parameter Design Guidance
 
 **dc_gain 设计**：
-- 对于归一化Input（±1V），如需800mV峰峰值Output，设置 `dc_gain = 0.8 / 2.0 = 0.4`
-- Consider impedance matching voltage division: if driver open-circuit gain is G_oc, actual channel entrance gain is `G_channel = G_oc × Z0/(Zout + Z0)`
-- Typical configuration range:0.2 ~ 0.6（对应400mV ~ 1200mVOutput摆幅，假设2V峰峰值Input）
+- 对于归一化Input（±1V，即2Vpp），若 Zout=Z0（vdf=0.5）、如需信道侧800mVpp：`dc_gain = 0.8 / (2.0 × 0.5) = 0.8`
+- Consider impedance matching voltage division: 信道入口增益 `G_channel = dc_gain × Z0/(Zout + Z0)`（soft saturation 为单位增益，不再引入额外斜率）
+- Typical configuration range: 0.4 ~ 1.2（vdf=0.5 时对应信道侧400mV ~ 1200mVpp，假设2Vpp Input）
 
 **vswing 设计**：
 - Standard requirements:PCIe Gen3/4（800-1200mV）、USB 3.2（800-1000mV）、56G SerDes（400-600mV）
@@ -181,11 +183,11 @@ All configurable parameters of TX Driver are defined through the `TxDriverParams
 - Low pole risk: Insufficient bandwidth causes inter-symbol interference (ISI), eye closure
 - High pole risk: Amplifies high-frequency noise, increases power consumption, insufficient compensation for channel high-frequency loss
 
-**sat_mode and vlin 设计**：
-- `sat_mode = "soft"`（推荐）：适用于精确建模，捕捉渐进压缩and高阶Harmonic distortion
+**sat_mode 设计（2026-10 语义修订）**：
+- `sat_mode = "soft"`（推荐）：单位增益 tanh 限幅（小信号斜率恒为 1），平滑渐近趋近限幅电平，捕捉渐进压缩效应
 - `sat_mode = "hard"`：适用于快速功能验证and极限条件分析
 - `sat_mode = "none"`：仅用于理想线性测试，实际应用必须考虑饱and效应
-- `vlin` 选择：通常设置为 `vlin = vswing / α`，α 为overdrive factor (1.2-1.5), e.g., vswing=0.8V, vlin=0.8/1.2≈0.67V
+- ⚠️ `vlin` 已废弃：软饱和小信号斜率恒为 1，不再有 Vsat/vlin 形式的额外增益；额外增益只能通过 `dc_gain` 获得
 
 **output_impedance 设计**：
 - Standard value:50Ω（差分100Ω）is the universal choice for high-speed SerDes
@@ -461,29 +463,31 @@ where ωp_i = 2π × poles[i]。
 
 **4a. 软饱and（Soft Saturation）**：`sat_mode = "soft"`
 
-使用双曲正切函数实现渐进式饱and，模拟晶体管跨导压缩效应：
+单位增益双曲正切限幅（与 CTLE/VGA/Summer 级一致），模拟跨导压缩效应：
 
 ```cpp
-double vsat = vswing / 2.0;
-vout_diff = vsat * tanh(vout_diff / vlin);
+double vdf  = Z0 / (output_impedance + Z0);   // 阻抗分压系数
+double vsat = (vswing / 2.0) / vdf;           // 内部分压前限幅电平
+vout_diff = vsat * tanh(vout_diff / vsat);    // 单位增益，小信号斜率 = 1
 ```
 
 **工作原理**：
-- 当Input远小于 `vlin` 时，Output近似线性：`vout ≈ vsat * (vout_diff / vlin)`
-- 当Input接近或超过 `vlin` 时，增益逐渐压缩，Output渐近趋近 ±vsat
+- 小信号区间（|x| ≪ vsat）：Output 近似线性，`vout ≈ vout_diff`，增益 = `dc_gain`
+- 当Input接近 vsat 时增益逐渐压缩，Output渐近趋近 ±vsat（信道侧 ±vswing/2）
 - `tanh` function has continuous first derivative, avoiding convergence issues
 
-**参数关系**：
-- `vlin` 定义线性区Input范围，通常设置为 `vlin = vswing / α`，where α 为过驱动因子（1.2-1.5）
-- 例如：`vswing = 0.8V`，`α = 1.2`，则 `vlin = 0.8/1.2 ≈ 0.67V`
-- 当Input幅度达到 `vlin` 时，Output约为最大摆幅的 76%（tanh(1) ≈ 0.76）
+**参数关系（2026-10 语义修订）**：
+- `vswing` 定义为**信道侧**差分 Vpp（经阻抗分压之后）；内部限幅电平自动乘以 `1/vdf` 补偿分压
+- `vlin` 已废弃：不再提供线性区宽度控制，小信号增益完全由 `dc_gain` 决定
+- 例：`vswing = 0.8V`、`Zout = 50Ω`、`Z0 = 50Ω` → `vdf = 0.5`、`vsat = 0.8V`；输入 2.0V 时输出 `0.8·tanh(2.5) ≈ 0.789V`，信道侧 ≈ 0.395V（< vswing/2 = 0.4V）
 
 **4b. 硬饱and（Hard Clipping）**：`sat_mode = "hard"`
 
 Simple upper/lower limit clamping, fast implementation but discontinuous derivatives at boundaries:
 
 ```cpp
-double vsat = vswing / 2.0;
+double vdf  = Z0 / (output_impedance + Z0);
+double vsat = (vswing / 2.0) / vdf;   // 内部分压前限幅电平
 vout_diff = std::max(-vsat, std::min(vsat, vout_diff));
 ```
 
@@ -2545,12 +2549,12 @@ Driver 测试平台的参数通过 JSON 配置文件管理，文件位于 `confi
 | 参数 | 类型 | 单位 | 说明 | 典型值 |
 |------|------|------|------|--------|
 | `dc_gain` | double | - | 直流增益（线性倍数） | 0.25-0.5 |
-| `vswing` | double | V | 差分Output摆幅（峰峰值） | 0.4-1.2 |
+| `vswing` | double | V | 信道侧差分输出摆幅（峰峰值，经阻抗分压后） | 0.4-1.2 |
 | `vcm_out` | double | V | Output共模电压 | 0.6 |
 | `output_impedance` | double | Ω | Output阻抗（差分） | 50.0 |
 | `poles` | array | Hz | 极点频率列表 | [50e9] 或 [45e9, 80e9] |
 | `sat_mode` | string | - | 饱and模式："soft"/"hard"/"none" | "soft" |
-| `vlin` | double | V | 软饱and线性区参数 | vswing/1.2 |
+| `vlin` | double | V | **DEPRECATED（已忽略）**：仅为旧配置兼容保留 | — |
 
 **PSRR 子参数（driver.psrr）**：
 
@@ -2670,7 +2674,7 @@ Testbench 启动时会自动验证参数合法性，以下规则会被检查：
 1. **摆幅范围**：`0 < vswing ≤ 2.0` V
 2. **增益合理性**：`dc_gain > 0`
 3. **极点顺序**：`poles` 数组必须升序排列
-4. **饱and模式一致性**：`sat_mode="soft"` 时必须设置 `vlin > 0`
+4. **饱和参数（2026-10 语义修订）**：`vlin` 已废弃、不再校验；soft/hard 限幅电平由 `vswing` 与 `output_impedance` 决定
 5. **PSRR 增益范围**：`0 < psrr.gain < 1`
 
 **验证失败示例**：

@@ -70,12 +70,12 @@ struct TxFfeParams {
 struct TxDriverParams {
     // Basic parameters
     double dc_gain;              // DC gain (linear)
-    double vswing;               // Differential output swing Vpp (V)
+    double vswing;               // Channel-side differential output swing Vpp (V, after impedance division)
     double vcm_out;              // Output common-mode voltage (V)
     double output_impedance;     // Output impedance (Ohm, differential)
     std::vector<double> poles;   // Pole frequencies (Hz) for bandwidth limiting
     std::string sat_mode;        // Saturation mode: "soft"/"hard"/"none"
-    double vlin;                 // Soft saturation linear range parameter (V)
+    double vlin;                 // DEPRECATED (ignored): soft saturation is unit-gain; kept for config compat
     
     // PSRR (Power Supply Rejection Ratio) sub-structure
     struct PsrrParams {

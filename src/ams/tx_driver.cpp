@@ -103,10 +103,18 @@ void TxDriverTdf::processing() {
     // ========================================================================
     // Stage 4: Nonlinear saturation
     // ========================================================================
-    double Vsat = m_params.vswing / 2.0;  // Half-swing for differential
+    // vswing is defined at the channel side: differential Vpp delivered to
+    // the transmission line *after* the impedance-matching voltage division.
+    // Scale the internal saturation limit up by 1/vdf so that
+    //   channel-side clamped differential = 2 * Vsat * vdf = vswing.
+    const double Z0 = 50.0;  // Typical transmission line impedance
+    double voltage_division_factor = Z0 / (m_params.output_impedance + Z0);
+    double Vsat = (m_params.vswing / 2.0) / voltage_division_factor;
     
     if (m_params.sat_mode == "soft") {
-        vout_diff = apply_soft_saturation(vout_diff, Vsat, m_params.vlin);
+        // Unit-gain soft saturation (slope = 1 at origin); extra gain must
+        // come from dc_gain. vlin is no longer used (kept for config compat).
+        vout_diff = apply_soft_saturation(vout_diff, Vsat);
     } else if (m_params.sat_mode == "hard") {
         vout_diff = apply_hard_saturation(vout_diff, Vsat);
     }
@@ -156,17 +164,12 @@ void TxDriverTdf::processing() {
     // ========================================================================
     // Stage 8: Impedance matching (voltage division)
     // ========================================================================
-    // When output impedance matches load impedance (Z0), voltage divides by 2
-    // V_channel = V_driver * Z0 / (Zout + Z0)
-    const double Z0 = 50.0;  // Typical transmission line impedance
-    double voltage_division_factor = Z0 / (m_params.output_impedance + Z0);
-    
-    // Apply voltage division to get channel-side voltage
-    // Note: The common-mode voltage is also affected by the division
-    double vchannel_p = m_params.vcm_out * voltage_division_factor + 
-                       (vout_p - m_params.vcm_out) * voltage_division_factor;
-    double vchannel_n = m_params.vcm_out * voltage_division_factor + 
-                       (vout_n - m_params.vcm_out) * voltage_division_factor;
+    // When output impedance matches load impedance (Z0), voltage divides by 2:
+    //   V_channel = V_driver * Z0 / (Zout + Z0)
+    // Both the differential signal and the common mode are scaled by vdf
+    // (vdf was computed in stage 4 and is reused here).
+    double vchannel_p = vout_p * voltage_division_factor;
+    double vchannel_n = vout_n * voltage_division_factor;
     
     // Write outputs
     out_p.write(vchannel_p);
@@ -248,14 +251,15 @@ std::vector<double> TxDriverTdf::poly_multiply(
     return result;
 }
 
-double TxDriverTdf::apply_soft_saturation(double x, double Vsat, double Vlin) {
-    // Soft saturation using tanh function
-    // Output smoothly approaches ±Vsat as input increases
-    // Vlin controls the linear region width
-    if (Vsat <= 0.0 || Vlin <= 0.0) {
+double TxDriverTdf::apply_soft_saturation(double x, double Vsat) {
+    // Unit-gain soft saturation using tanh function
+    // Output smoothly approaches ±Vsat as input increases and the
+    // small-signal slope is 1 (consistent with CTLE/VGA/Summer stages).
+    // Any extra gain must be provided via dc_gain.
+    if (Vsat <= 0.0) {
         return x;  // No saturation
     }
-    return Vsat * std::tanh(x / Vlin);
+    return Vsat * std::tanh(x / Vsat);
 }
 
 double TxDriverTdf::apply_hard_saturation(double x, double Vsat) {

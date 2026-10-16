@@ -142,13 +142,12 @@ private:
         const std::vector<double>& p2);
     
     /**
-     * @brief Apply soft saturation using tanh function
+     * @brief Apply unit-gain soft saturation using tanh function
      * @param x Input value
-     * @param Vsat Saturation voltage (maximum output)
-     * @param Vlin Linear range parameter
-     * @return Saturated output value
+     * @param Vsat Saturation level; output = Vsat * tanh(x / Vsat)
+     * @return Saturated output value (small-signal slope = 1)
      */
-    double apply_soft_saturation(double x, double Vsat, double Vlin);
+    double apply_soft_saturation(double x, double Vsat);
     
     /**
      * @brief Apply hard saturation (clipping)
