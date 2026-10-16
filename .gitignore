@@ -62,8 +62,9 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile.cmake
-*.cmake
-!CMakeLists.txt
+# 误提交的 CMake 生成 Makefile（历史遗留；如将来需要手写顶层 Makefile 请删除本规则）
+/Makefile
+/tb/Makefile
 
 # Test reports
 *.xml
@@ -101,9 +102,6 @@ docs/workflow.md
 scripts/setup_env_local.sh
 *.local.sh
 
-# Kimi dev workflow files
-.kimi-dev/
-
 # Plans directory (contains internal planning docs)
 docs/plans/
 
@@ -115,6 +113,9 @@ docs/systemc-ams-rebuild.md
 # Worktrees
 .worktrees/
 KNOWN_ISSUES.md
-AGENTS.md
-.kimi-dev/
-docs/plans/
+
+# 本地大文件与误操作产物（不入库；论文/幻灯片资产处置待定，暂不忽略）
+-o/
+*.s12p
+*.zip
+*.7z

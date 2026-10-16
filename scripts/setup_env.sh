@@ -1,6 +1,10 @@
 #!/bin/bash
-# SystemC 环境设置脚本
-# 复制此文件为 scripts/setup_env_local.sh 并修改为你的本地路径
+# SystemC 环境设置脚本（用 source 运行：source scripts/setup_env.sh）
+# 也可复制此文件为 scripts/setup_env_local.sh 后固化你的本地路径
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
+    echo "错误: 请用 'source $0' 运行本脚本（直接执行不会影响当前 shell）"
+    exit 1
+fi
 
 # ============================================================================
 # 请根据你的实际安装路径修改以下变量
@@ -10,9 +14,9 @@
 # export SYSTEMC_HOME=/opt/homebrew/opt/systemc
 # export SYSTEMC_AMS_HOME=/opt/homebrew/opt/systemc-ams
 
-# 本地编译安装示例
-export SYSTEMC_HOME=$HOME/systemc-2.3.4
-export SYSTEMC_AMS_HOME=$HOME/systemc-ams-2.3.4
+# 本地编译安装示例（已设置的环境变量不会被覆盖）
+export SYSTEMC_HOME="${SYSTEMC_HOME:-$HOME/systemc-2.3.4}"
+export SYSTEMC_AMS_HOME="${SYSTEMC_AMS_HOME:-$HOME/systemc-ams-2.3.4}"
 
 # 或者使用相同目录（如果 SystemC-AMS 安装在 SystemC 目录中）
 # export SYSTEMC_AMS_HOME=$SYSTEMC_HOME

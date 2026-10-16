@@ -7,9 +7,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 TESTS_DIR="$BUILD_DIR/tests"
 
-# 设置 SystemC 环境变量
-export SYSTEMC_HOME="/Users/liuyizhe/Developer/systemCinstall/install-2.3.4"
-export SYSTEMC_AMS_HOME="/Users/liuyizhe/Developer/systemCinstall/install-2.3.4"
+# 注：不再硬编码 SystemC 路径——测试可执行文件通过构建期 RPATH 定位库；
+# 如需自定义请在调用前 export SYSTEMC_HOME / SYSTEMC_AMS_HOME 并重新构建。
 
 # 使用方法
 if [ $# -eq 0 ]; then
