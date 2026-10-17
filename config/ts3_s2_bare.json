@@ -1,0 +1,256 @@
+{
+  "_comment": "SerDes \u89c4\u8303\u9ed8\u8ba4\u914d\u7f6e\uff08= parameters.h \u7ed3\u6784\u4f53\u6784\u9020\u9ed8\u8ba4\u503c\u7684\u5e8f\u5217\u5316\uff09\u3002ConfigLoader \u4ee5\u6b64\u4e3a\u8986\u76d6\u5c42\u793a\u4f8b\uff1a\u672a\u51fa\u73b0\u7684\u952e\u4fdd\u6301\u9ed8\u8ba4\uff1b\u672a\u77e5\u952e\u8b66\u544a\uff1b\u7c7b\u578b/\u679a\u4e3e\u9519\u8bef\u5219\u52a0\u8f7d\u5931\u8d25\u3002\u5355\u4f4d\u7ea6\u5b9a\uff1a\u79d2 / \u8d6b\u5179\uff08SI\uff09\u3002\u952e\u540d\u4ee5 '_' \u5f00\u5934\u89c6\u4e3a\u6ce8\u91ca\u3002",
+  "global": {
+    "Fs": 500000000000.0,
+    "UI": 1e-10,
+    "duration": 2e-06,
+    "seed": 12345
+  },
+  "wave": {
+    "type": "PRBS31",
+    "poly": "x^31 + x^28 + 1",
+    "init": "0x7FFFFFFF",
+    "single_pulse": 0.0,
+    "jitter": {
+      "RJ_sigma": 0.0,
+      "SJ_freq": [],
+      "SJ_pp": []
+    },
+    "modulation": {
+      "AM": 0.0,
+      "PM": 0.0
+    }
+  },
+  "tx": {
+    "ffe": {
+      "taps": [
+        1.0
+      ]
+    },
+    "mux_lane": 0,
+    "driver": {
+      "dc_gain": 1.0,
+      "vswing": 0.8,
+      "vcm_out": 0.6,
+      "output_impedance": 50.0,
+      "poles": [
+        17500000000.0
+      ],
+      "sat_mode": "none",
+      "vlin": 1.0,
+      "psrr": {
+        "enable": false,
+        "gain": 0.01,
+        "poles": [
+          1000000000.0
+        ],
+        "vdd_nom": 1.0
+      },
+      "imbalance": {
+        "gain_mismatch": 0.0,
+        "skew": 0.0
+      },
+      "slew_rate": {
+        "enable": false,
+        "max_slew_rate": 1000000000000.0
+      }
+    }
+  },
+  "channel": {
+    "touchstone": "",
+    "ports": 2,
+    "crosstalk": false,
+    "bidirectional": false,
+    "attenuation_db": 10.0,
+    "bandwidth_hz": 20000000000.0
+  },
+  "rx": {
+    "ctle": {
+      "zeros": [],
+      "poles": [],
+      "dc_gain": 1.0,
+      "vcm_out": 0.6,
+      "offset_enable": false,
+      "vos": 0.0,
+      "noise_enable": false,
+      "vnoise_sigma": 0.0,
+      "sat_min": -10.0,
+      "sat_max": 10.0,
+      "psrr": {
+        "enable": false,
+        "gain": 0.0,
+        "zeros": [],
+        "poles": [],
+        "vdd_nom": 1.0
+      },
+      "cmfb": {
+        "enable": false,
+        "bandwidth": 1000000.0,
+        "loop_gain": 1.0
+      },
+      "cmrr": {
+        "enable": false,
+        "gain": 0.0,
+        "zeros": [],
+        "poles": []
+      }
+    },
+    "vga": {
+      "zeros": [],
+      "poles": [
+        10000000000000.0
+      ],
+      "dc_gain": 1.0,
+      "vcm_out": 0.6,
+      "offset_enable": false,
+      "vos": 0.0,
+      "noise_enable": false,
+      "vnoise_sigma": 0.0,
+      "sat_min": -10.0,
+      "sat_max": 10.0,
+      "psrr": {
+        "enable": false,
+        "gain": 0.0,
+        "zeros": [],
+        "poles": [],
+        "vdd_nom": 1.0
+      },
+      "cmfb": {
+        "enable": false,
+        "bandwidth": 1000000.0,
+        "loop_gain": 1.0
+      },
+      "cmrr": {
+        "enable": false,
+        "gain": 0.0,
+        "zeros": [],
+        "poles": []
+      }
+    },
+    "sampler": {
+      "threshold": 0.0,
+      "hysteresis": 0.0,
+      "sample_delay": 0.0,
+      "phase_source": "phase",
+      "resolution": 1e-06,
+      "offset_enable": false,
+      "offset_value": 0.0,
+      "noise_enable": true,
+      "noise_sigma": 0.1,
+      "noise_seed": 12345
+    },
+    "dfe_summer": {
+      "tap_coeffs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ui": 1e-10,
+      "vcm_out": 0.0,
+      "vtap": 0.05,
+      "map_mode": "pm1",
+      "enable": true,
+      "sat_enable": false,
+      "sat_min": -10.0,
+      "sat_max": 10.0
+    }
+  },
+  "cdr": {
+    "pi": {
+      "kp": 0.0,
+      "ki": 0.0,
+      "edge_threshold": 0.5,
+      "adaptive_threshold": false
+    },
+    "pai": {
+      "resolution": 1e-12,
+      "range": 5e-11
+    },
+    "ui": 1e-10,
+    "sample_point": 0.5,
+    "debug_enable": false
+  },
+  "clock": {
+    "_warning": "type \u9ed8\u8ba4 PLL\uff0c\u4f46 PLL/ADPLL \u6a21\u5f0f\u5f53\u524d\u4e3a\u5360\u4f4d\u5b9e\u73b0\uff08\u89c1 clkGen.md\uff09",
+    "type": "IDEAL",
+    "frequency": 10000000000.0,
+    "pll": {
+      "pd_type": "tri-state",
+      "cp_current": 5e-05,
+      "lf_R": 10000.0,
+      "lf_C": 1e-10,
+      "vco_Kvco": 100000000.0,
+      "vco_f0": 10000000000.0,
+      "divider": 4
+    }
+  },
+  "eye": {
+    "ui_bins": 128,
+    "amp_bins": 128,
+    "measure_length": 0.0001
+  },
+  "adaption": {
+    "Fs": 500000000000.0,
+    "UI": 1e-10,
+    "seed": 12345,
+    "update_mode": "multi-rate",
+    "fast_update_period": 2e-10,
+    "slow_update_period": 2e-07,
+    "agc": {
+      "enabled": false,
+      "target_amplitude": 0.4,
+      "kp": 0.1,
+      "ki": 100.0,
+      "gain_min": 0.5,
+      "gain_max": 8.0,
+      "rate_limit": 10.0,
+      "initial_gain": 1.0
+    },
+    "dfe": {
+      "enabled": false,
+      "num_taps": 5,
+      "algorithm": "sign-lms",
+      "mu": 1e-05,
+      "leakage": 1e-06,
+      "initial_taps": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tap_min": -1.0,
+      "tap_max": 1.0,
+      "stats_period": 4096,
+      "mu_startup": 1e-05,
+      "mu_acquire": 1e-06,
+      "mu_track": 1e-07
+    },
+    "vref_adapt": {
+      "enabled": false,
+      "vref_pos": 0.15,
+      "vref_neg": -0.15,
+      "vref_initial": 0.15,
+      "target_confidence": 0.7,
+      "asymmetry_alert": 0.15,
+      "adapt_alpha": 0.05
+    },
+    "cdr_pi": {
+      "enabled": false,
+      "kp": 0.01,
+      "ki": 0.0001,
+      "phase_resolution": 1e-12,
+      "phase_range": 5e-11,
+      "anti_windup": true,
+      "initial_phase": 0.0
+    },
+    "safety": {
+      "freeze_on_error": false,
+      "rollback_enable": false,
+      "snapshot_interval": 1e-06,
+      "error_burst_threshold": 100
+    }
+  }
+}

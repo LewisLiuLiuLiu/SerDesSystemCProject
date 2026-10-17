@@ -141,6 +141,9 @@ struct NrzLinkConfig {
         
         // Clock 频率
         clock.frequency = data_rate;
+
+        // T-S3 A1: precompute horizon for edge-jitter waveform generation
+        wave.ui_count = static_cast<long long>(sim_ui_count());
     }
     
     /**

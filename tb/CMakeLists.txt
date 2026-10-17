@@ -103,3 +103,10 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/top/nrz_link_tb.cpp)
     add_serdes_testbench(nrz_link_tb top/nrz_link_tb.cpp)
 endif()
+
+# ============================================================================
+# Minimal BER testbench (T-S3 A3: per-UI decision export for offline BER)
+# ============================================================================
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/top/nrz_ber_tb.cpp)
+    add_serdes_testbench(nrz_ber_tb top/nrz_ber_tb.cpp)
+endif()

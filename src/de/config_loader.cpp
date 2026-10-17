@@ -182,10 +182,15 @@ void check_known(ParseCtx& ctx, const json& sec, const std::string& path,
 // 各节解析
 // ============================================================================
 void parse_jitter(ParseCtx& c, const json& j, const std::string& p, JitterParams& v) {
-    check_known(c, j, p, {"RJ_sigma", "SJ_freq", "SJ_pp"});
+    check_known(c, j, p, {"RJ_sigma", "SJ_freq", "SJ_pp",
+                          "enable", "DCD_delta", "SJ_phase", "edge_csv"});
     num_field(c, j, "RJ_sigma", p, v.RJ_sigma);
     num_array_field(c, j, "SJ_freq", p, v.SJ_freq);
     num_array_field(c, j, "SJ_pp", p, v.SJ_pp);
+    bool_field(c, j, "enable", p, v.enable);
+    num_field(c, j, "DCD_delta", p, v.DCD_delta);
+    num_field(c, j, "SJ_phase", p, v.SJ_phase);
+    str_field(c, j, "edge_csv", p, v.edge_csv);
 }
 
 void parse_modulation(ParseCtx& c, const json& j, const std::string& p, ModulationParams& v) {
@@ -195,11 +200,14 @@ void parse_modulation(ParseCtx& c, const json& j, const std::string& p, Modulati
 }
 
 void parse_wave(ParseCtx& c, const json& j, const std::string& p, WaveGenParams& v) {
-    check_known(c, j, p, {"type", "poly", "init", "single_pulse", "jitter", "modulation"});
+    check_known(c, j, p, {"type", "poly", "init", "single_pulse", "jitter", "modulation",
+                          "edge_mode", "edge_tr"});
     prbs_field(c, j, "type", p, v.type);
     str_field(c, j, "poly", p, v.poly);
     str_field(c, j, "init", p, v.init);
     num_field(c, j, "single_pulse", p, v.single_pulse);
+    str_field(c, j, "edge_mode", p, v.edge_mode);
+    num_field(c, j, "edge_tr", p, v.edge_tr);
     if (const json* sub = get_section(c, j, "jitter", p)) parse_jitter(c, *sub, p + ".jitter", v.jitter);
     if (const json* sub = get_section(c, j, "modulation", p)) parse_modulation(c, *sub, p + ".modulation", v.modulation);
 }
@@ -286,12 +294,13 @@ void parse_amp_cmrr(ParseCtx& c, const json& j, const std::string& p, S& v) {
 // CTLE 与 VGA 参数字段同名同型，模板复用
 template <typename P>
 void parse_rx_amp(ParseCtx& c, const json& j, const std::string& p, P& v) {
-    check_known(c, j, p, {"zeros", "poles", "dc_gain", "vcm_out", "offset_enable", "vos",
-                          "noise_enable", "vnoise_sigma", "sat_min", "sat_max",
-                          "psrr", "cmfb", "cmrr"});
+    check_known(c, j, p, {"zeros", "poles", "dc_gain", "discrete", "vcm_out",
+                          "offset_enable", "vos", "noise_enable", "vnoise_sigma",
+                          "sat_min", "sat_max", "psrr", "cmfb", "cmrr"});
     num_array_field(c, j, "zeros", p, v.zeros);
     num_array_field(c, j, "poles", p, v.poles);
     num_field(c, j, "dc_gain", p, v.dc_gain);
+    bool_field(c, j, "discrete", p, v.discrete);
     num_field(c, j, "vcm_out", p, v.vcm_out);
     bool_field(c, j, "offset_enable", p, v.offset_enable);
     num_field(c, j, "vos", p, v.vos);

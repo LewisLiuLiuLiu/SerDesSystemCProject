@@ -54,7 +54,16 @@ private:
      * @return true for bit 1, false for bit 0
      */
     bool generate_prbs_bit();
-    
+
+    // T-S3 A1: edge-level jitter (EDGE-01) -------------------------------------------------
+    struct JitterEdge {
+        long long sample_index;   // floor((nominal_time + e_total) / timestep)
+        double alpha;             // fractional part in [0,1)
+        double old_level;
+        double new_level;
+    };
+    void build_jittered_edges();
+
     WaveGenParams m_params;
     unsigned int m_lfsr_state;
     double m_sample_rate;
@@ -62,9 +71,20 @@ private:
     int m_samples_per_ui;           // Oversampling ratio
     int m_sample_counter;           // Counter within current UI
     double m_current_bit_value;     // Current bit value held during UI
+    // T-S4 A2: causal finite-edge shaping (PRBS path, jitter disabled)
+    double m_edge_from;             // level before the current UI transition
+    double m_edge_to;               // level after the current UI transition
+    double m_edge_start;            // absolute time of the transition start
     double m_time;
     unsigned int m_seed;
     std::mt19937 m_rng;
+
+    // T-S3 A1: edge-level jitter state
+    std::vector<double> m_jit_levels;      // per-UI NRZ levels (+1/-1)
+    std::vector<JitterEdge> m_jit_edges;   // transitions with shifted sample indices
+    size_t m_jit_edge_ptr;                 // next edge to apply
+    long long m_jit_sample_index;          // current 2-ps grid index
+    double m_jit_last_level;               // level after the last edge
 };
 
 } // namespace serdes

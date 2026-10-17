@@ -1,5 +1,6 @@
 #include "ams/rx_ctle.h"
 #include <cmath>
+#include <iostream>
 #include <sstream>
 
 namespace serdes {
@@ -16,6 +17,8 @@ RxCtleTdf::RxCtleTdf(sc_core::sc_module_name nm, const RxCtleParams& params)
     , m_psrr_enabled(false)
     , m_cmrr_enabled(false)
     , m_cmfb_enabled(false)
+    , m_discrete_ctle(false)
+    , m_ctle_ad(0.0), m_ctle_bd(0.0), m_ctle_cd(0.0), m_ctle_dd(1.0), m_ctle_x(0.0)
     , m_vcm_prev(params.vcm_out)
     , m_out_p_prev(params.vcm_out)
     , m_out_n_prev(params.vcm_out)
@@ -58,6 +61,29 @@ void RxCtleTdf::initialize() {
         m_ctle_filter_enabled = false;
     }
     
+    // T-S4: exact ZOH realization for the first-order CTLE
+    // H(s) = A*(1+s/wz)/(1+s/wp) = D + C/(s+wp), D=A*wp/wz, C=D*(wz-wp).
+    m_discrete_ctle = false;
+    if (m_params.discrete && m_params.zeros.size() == 1 && m_params.poles.size() == 1) {
+        const double wz = 2.0 * M_PI * m_params.zeros[0];
+        const double wp = 2.0 * M_PI * m_params.poles[0];
+        if (wz > 0.0 && wp > 0.0) {
+            const double A = m_params.dc_gain;
+            const double D = A * wp / wz;
+            const double C = D * (wz - wp);
+            const double dt = get_timestep().to_seconds();
+            m_ctle_ad = std::exp(-wp * dt);
+            m_ctle_bd = (1.0 - m_ctle_ad) / wp;
+            m_ctle_cd = C;
+            m_ctle_dd = D;
+            m_ctle_x = 0.0;
+            m_discrete_ctle = true;
+            std::cout << "[CTLE] using exact ZOH discrete first-order filter: fz="
+                      << m_params.zeros[0] / 1e9 << " GHz, fp="
+                      << m_params.poles[0] / 1e9 << " GHz, dt=" << dt << " s" << std::endl;
+        }
+    }
+
     // Build PSRR transfer function if enabled
     if (m_params.psrr.enable) {
         build_transfer_function(m_params.psrr.zeros, m_params.psrr.poles,
@@ -106,7 +132,11 @@ void RxCtleTdf::processing() {
     // Step 4: Main CTLE filtering with zero-pole transfer function
     // H(s) = dc_gain * prod(1 + s/wz_i) / prod(1 + s/wp_j)
     double vout_diff_linear;
-    if (m_ctle_filter_enabled) {
+    if (m_discrete_ctle) {
+        // Exact ZOH first-order recurrence: y = C x + D u, x' = ad x + bd u.
+        vout_diff_linear = m_ctle_cd * m_ctle_x + m_ctle_dd * vin_diff;
+        m_ctle_x = m_ctle_ad * m_ctle_x + m_ctle_bd * vin_diff;
+    } else if (m_ctle_filter_enabled) {
         // Apply Laplace transfer function using sca_ltf_nd
         // The ltf_nd operator() applies the filter: output = H(s) * input
         vout_diff_linear = m_ltf_ctle(m_num_ctle, m_den_ctle, vin_diff);

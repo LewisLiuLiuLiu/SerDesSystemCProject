@@ -88,6 +88,11 @@ public:
         return m_sig_cdr_phase;
     }
 
+    /// CDR per-UI data strobe (T-S3 A3: export decision instants)
+    sca_tdf::sca_signal<bool>& get_data_trigger_signal() {
+        return m_sig_data_trigger;
+    }
+
     sc_core::sc_signal<double>& get_dfe_tap_signal(int tap_index) {
         switch (tap_index) {
             case 1: return m_sig_dfe_tap1_de;

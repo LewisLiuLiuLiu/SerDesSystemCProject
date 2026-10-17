@@ -91,6 +91,10 @@ private:
     bool m_psrr_enabled;
     bool m_cmrr_enabled;
     bool m_cmfb_enabled;
+
+    // T-S4: exact ZOH first-order CTLE realization (optional; one zero/pole).
+    bool m_discrete_ctle;
+    double m_ctle_ad, m_ctle_bd, m_ctle_cd, m_ctle_dd, m_ctle_x;
     
     // Internal states
     double m_vcm_prev;                   // Previous common mode output

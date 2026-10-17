@@ -32,8 +32,14 @@ struct JitterParams {
     double RJ_sigma;                  // Random jitter standard deviation (s)
     std::vector<double> SJ_freq;      // Sinusoidal jitter frequencies (Hz)
     std::vector<double> SJ_pp;        // Sinusoidal jitter peak-to-peak values (s)
-    
-    JitterParams() : RJ_sigma(0.0) {}
+
+    // T-S3 A1: edge-level (per-edge) jitter injection — EDGE-01
+    bool enable;                      // enable per-edge time-shift injection
+    double DCD_delta;                 // DCD: rising +delta / falling -delta (s, half-offset)
+    double SJ_phase;                  // common SJ phase offset (rad)
+    std::string edge_csv;             // output path for the applied edge-shift sequence
+
+    JitterParams() : RJ_sigma(0.0), enable(false), DCD_delta(0.0), SJ_phase(0.0) {}
 };
 
 struct ModulationParams {
@@ -50,12 +56,18 @@ struct WaveGenParams {
     double single_pulse;              // Single pulse width (s), >0 enables pulse mode
     JitterParams jitter;
     ModulationParams modulation;
-    
+    long long ui_count;               // precompute horizon for edge-jitter mode (set by TB)
+    std::string edge_mode;            // "ideal" (default), "erf", "linear"
+    double edge_tr;                   // 10–90% transition time (s), used if edge_mode != ideal
+
     WaveGenParams()
         : type(PRBSType::PRBS31)
         , poly("x^31 + x^28 + 1")
         , init("0x7FFFFFFF")
-        , single_pulse(0.0) {}        // Default 0.0 = PRBS mode
+        , single_pulse(0.0)
+        , ui_count(0)
+        , edge_mode("ideal")
+        , edge_tr(20e-12) {}    // PULSE-01 default
 };
 
 // ============================================================================
@@ -157,6 +169,7 @@ struct RxCtleParams {
     std::vector<double> zeros;       // Zero frequencies (Hz)
     std::vector<double> poles;       // Pole frequencies (Hz)
     double dc_gain;                  // DC gain (linear)
+    bool discrete;                   // T-S4: exact ZOH first-order CTLE (one zero/pole)
     
     // Common mode output voltage
     double vcm_out;                  // Differential output common mode voltage (V)
@@ -215,6 +228,7 @@ struct RxCtleParams {
         : zeros({2e9})
         , poles({30e9})
         , dc_gain(1.5)
+        , discrete(false)
         , vcm_out(0.6)
         , offset_enable(false)
         , vos(0.0)
@@ -229,6 +243,7 @@ struct RxVgaParams {
     std::vector<double> zeros;       // Zero frequencies (Hz)
     std::vector<double> poles;       // Pole frequencies (Hz)
     double dc_gain;                  // DC gain (linear)
+    bool discrete;                   // T-S4: exact ZOH first-order CTLE (one zero/pole)
     
     // Common mode output voltage
     double vcm_out;                  // Differential output common mode voltage (V)
@@ -287,6 +302,7 @@ struct RxVgaParams {
         : zeros({1e9})               // Default 1 GHz zero
         , poles({20e9})              // Default 20 GHz pole
         , dc_gain(2.0)               // Default 2.0 gain (VGA typically higher than CTLE)
+        , discrete(false)
         , vcm_out(0.6)
         , offset_enable(false)
         , vos(0.0)

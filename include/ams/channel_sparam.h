@@ -47,6 +47,12 @@ struct FullModelData {
     std::vector<std::pair<int,int>> port_pairs;  // Each output's (out,in) mapping
     std::vector<double> delays;       // Delay per output
     StateSpaceData state_space;       // Full A, B, C, D, E matrices
+    // T-S4: optional exact zero-order-hold discrete realization (Ad,Bd,C,D,E)
+    // exported from Python; used instead of the sca_ss DAE solver when the
+    // simulation timestep matches discrete_dt.
+    bool has_discrete{false};
+    double discrete_dt{0.0};
+    StateSpaceData discrete_state_space;
 };
 
 namespace serdes {
@@ -174,6 +180,20 @@ private:
     // State-space filter and state
     sca_tdf::sca_ss m_ss_filter;
     sca_util::sca_vector<double> m_ss_state;
+
+    // T-S4: exact ZOH discrete realization (optional; falls back to sca_ss)
+    StateSpaceData m_active_discrete;
+    bool m_use_discrete;
+    double m_discrete_dt;
+    sca_util::sca_vector<double> m_disc_state;   // legacy accessor (unused in fast path)
+    // Flat row-major copies for the hot discrete recurrence (avoids sca_matrix
+    // accessor overhead at every 2 ps step).
+    std::vector<double> m_disc_A, m_disc_B, m_disc_C, m_disc_D, m_disc_E;
+    std::vector<double> m_disc_x, m_disc_xnew;
+
+    // E-term feedthrough support (T-S3 A2 fix: E was parsed but ignored)
+    std::vector<double> m_u_prev;   // previous input vector for E*(du/dt)
+    bool m_u_prev_valid;            // skip derivative on first call (avoid startup spike)
     
     // Initialization flags
     bool m_config_loaded;
