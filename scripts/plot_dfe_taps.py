@@ -16,7 +16,7 @@ def main():
     if len(sys.argv) > 1:
         csv_file = sys.argv[1]
     else:
-        csv_file = 'nrz_10g_dfe_taps.csv'
+        csv_file = 'build/nrz_10g_dfe_taps.csv'
     
     output_dir = sys.argv[2] if len(sys.argv) > 2 else 'output_eye'
     

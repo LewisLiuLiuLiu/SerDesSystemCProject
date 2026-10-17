@@ -15,10 +15,19 @@ def compare_response(s4p_file, waveform_file):
     freq_orig = nw.frequency.f
     s21_orig = nw.s[:, 1, 0]
     
-    # Load C++ output
-    data = np.loadtxt(waveform_file)
+    # Load C++ output (CSV with header; prefer differential/output column)
+    with open(waveform_file, 'r') as f:
+        header = [h.strip() for h in f.readline().strip().split(',')]
+    data = np.loadtxt(waveform_file, delimiter=',', skiprows=1, ndmin=2)
     time = data[:, 0]
-    voltage = data[:, 1]
+    if 'voltage_diff' in header:
+        voltage = data[:, header.index('voltage_diff')]
+    elif 'output_V' in header:
+        voltage = data[:, header.index('output_V')]
+    elif 'voltage_v' in header:
+        voltage = data[:, header.index('voltage_v')]
+    else:
+        voltage = data[:, 1]
     dt = time[1] - time[0]
     
     # Compute FFT

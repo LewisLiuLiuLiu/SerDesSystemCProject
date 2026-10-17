@@ -19,7 +19,7 @@ from scipy import signal
 from scipy.interpolate import interp1d
 
 # Import local modules
-from vector_fitting import VectorFitting, check_passivity
+from vector_fitting import VectorFitting
 
 logger = logging.getLogger(__name__)
 
@@ -696,8 +696,11 @@ def process_sparam(input_file, output_file, method='both', fs=100e9,
     reader = TouchstoneReader(input_file)
     freq, s_matrix = reader.read()
     
-    # Check passivity
-    is_passive, max_eig, violations = check_passivity(s_matrix, freq)
+    # Check passivity (max singular value of S over frequency, <= 1 for passive)
+    singular_values = np.linalg.svd(s_matrix, compute_uv=False)
+    max_eig = float(np.max(singular_values))
+    violations = np.where(singular_values.max(axis=1) > 1.0 + 1e-3)[0]
+    is_passive = len(violations) == 0
     if not is_passive:
         logger.warning(f"S-parameters violate passivity at {len(violations)} frequencies")
         logger.warning(f"Maximum eigenvalue: {max_eig:.4f}")
@@ -726,10 +729,20 @@ def process_sparam(input_file, output_file, method='both', fs=100e9,
         logger.info(f"Processing {sparam}")
         
         # Rational fitting method
+        # NOTE (2026-10): 当前 VectorFitting 只返回 poles/residues/d/e，
+        # 尚未实现 num/den/mse 导出；-m rational 会给出明确错误，
+        # CLI 默认已改为可用的 impulse。
         if method in ['rational', 'both']:
             vf = VectorFitting(order=order)
-            vf_result = vf.fit(freq, S_data, enforce_stability=True)
-            config_gen.add_rational_filter(sparam, vf_result)
+            vf_result = vf.fit(2j * np.pi * freq, S_data)  # VF expects rad/s
+            if 'num' not in vf_result or 'den' not in vf_result:
+                msg = ("rational filter export (num/den) is not implemented by the "
+                       "current VectorFitting; use '-m impulse'")
+                if method == 'rational':
+                    raise NotImplementedError(msg)
+                logger.warning(msg + " — skipping rational part")
+            else:
+                config_gen.add_rational_filter(sparam, vf_result)
         
         # Impulse response method
         if method in ['impulse', 'both']:
@@ -756,7 +769,9 @@ def main():
     parser.add_argument('-o', '--output', default='channel_config.json',
                        help='Output configuration file (default: channel_config.json)')
     parser.add_argument('-m', '--method', choices=['rational', 'impulse', 'both'],
-                       default='both', help='Processing method (default: both)')
+                       default='impulse',
+                       help='Processing method (default: impulse; rational/both '
+                            'require the VF num/den export, not yet implemented)')
     parser.add_argument('-f', '--fs', type=float, default=100e9,
                        help='Sampling frequency in Hz (default: 100e9)')
     parser.add_argument('--order', type=int, default=8,

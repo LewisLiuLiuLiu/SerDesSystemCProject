@@ -34,10 +34,20 @@ print("Loading CDR phase data...")
 df = pd.read_csv(csv_file)
 
 time_ns = df['time_s'].values * 1e9  # Convert to nanoseconds
-phase_rad = df['phase'].values
+# Accept both CDR CSV layouts: *_cdr_phase.csv (phase, seconds) and
+# cdr_tran_lock.csv (phase_s / phase_ps)
+if 'phase' in df.columns:
+    phase_s = df['phase'].values
+elif 'phase_s' in df.columns:
+    phase_s = df['phase_s'].values
+elif 'phase_ps' in df.columns:
+    phase_s = df['phase_ps'].values * 1e-12
+else:
+    print(f"Error: No phase column found. Available columns: {list(df.columns)}")
+    sys.exit(1)
 
 # Convert phase to picoseconds for better visualization
-phase_ps = phase_rad * 1e12
+phase_ps = phase_s * 1e12
 
 print(f"Loaded {len(df)} samples")
 print(f"Time range: {time_ns[0]:.2f} ns to {time_ns[-1]:.2f} ns")

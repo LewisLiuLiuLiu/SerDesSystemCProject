@@ -18,12 +18,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# Add eye_analyzer to path
-try:
-    from eye_analyzer import EyeAnalyzer
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent.parent / 'eye_analyzer'))
-    from eye_analyzer import EyeAnalyzer
+# Add project root to path (eye_analyzer lives there)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from eye_analyzer.core import EyeAnalyzer
 
 
 def load_metadata(prefix):
@@ -65,8 +62,9 @@ def analyze_waveform(prefix, signal_name, ui):
         
         print(f"\nEye Metrics:")
         print(f"  Eye height: {metrics.get('eye_height', 0)*1000:.2f} mV")
-        print(f"  Eye width:  {metrics.get('eye_width', 0)*1e12:.2f} ps")
-        print(f"  Eye area:   {metrics.get('eye_area', 0)*1e12:.2f} mV*UI")
+        print(f"  Eye width:  {metrics.get('eye_width', 0):.3f} UI "
+              f"({metrics.get('eye_width', 0)*ui*1e12:.2f} ps)")
+        print(f"  Eye area:   {metrics.get('eye_area', 0)*1000:.2f} mV*UI")
         
     except Exception as e:
         print(f"  Warning: {e}")
