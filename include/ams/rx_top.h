@@ -141,6 +141,7 @@ private:
     sca_tdf::sca_signal<double> m_sig_cdr_phase;
     sca_tdf::sca_signal<double> m_sig_cdr_in;
     sca_tdf::sca_signal<bool> m_sig_sampling_trigger;
+    sca_tdf::sca_signal<bool> m_sig_data_trigger;       // CDR data_trigger（DFE 频闪，1/UI）
     sca_tdf::sca_signal<double> m_sig_data_feedback;
     sca_tdf::sca_signal<double> m_sig_clk;
     sca_tdf::sca_signal<double> m_sig_amp_est_out;      // AGC 检测器 EMA（监测）
@@ -189,6 +190,8 @@ private:
     // AdaptionDe -> Sampler (threshold/hysteresis, for main sampler only)
     sc_core::sc_signal<double> m_sig_sampler_threshold_de;
     sc_core::sc_signal<double> m_sig_sampler_hysteresis_de;
+    // 主采样器动态门限占位（恒 0 → 保持 slicer@0 静态门限）
+    sc_core::sc_signal<double> m_sig_zero_vref_de;
 
     // CDR -> AdaptionDe (phase error)
     sc_core::sc_signal<double> m_sig_phase_error_de;

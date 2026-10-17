@@ -22,6 +22,7 @@ RxCdrTdf::RxCdrTdf(sc_core::sc_module_name nm, const CdrParams& params)
     , in("in")
     , phase_out("phase_out")
     , sampling_trigger("sampling_trigger")
+    , data_trigger("data_trigger")
     , phase_error_de("phase_error_de")
     , m_params(params)
     , m_sample_state(SampleState::WAIT_EDGE)
@@ -85,6 +86,8 @@ void RxCdrTdf::set_attributes()
     phase_out.set_delay(1);  // 添加延迟以打破 Sampler-CDR 反馈环路
     sampling_trigger.set_rate(1);
     sampling_trigger.set_delay(1);  // 添加延迟以打破环路
+    data_trigger.set_rate(1);
+    data_trigger.set_delay(1);      // 与 sampling_trigger 保持同延迟
 }
 
 // ============================================================================
@@ -287,6 +290,7 @@ void RxCdrTdf::processing()
     // Output the actual phase (not quantized) for better visualization
     phase_out.write(m_phase);
     sampling_trigger.write(edge_trig || data_trig);
+    data_trigger.write(data_trig);  // DFE 频闪：仅 data 采样时刻
     
     // BBPD 相位误差（秒）→ DE 域（写变更，事件驱动；供 AdaptionDe 监视）
     double pe_sec = m_last_phase_error * m_params.ui;

@@ -37,6 +37,7 @@ SC_MODULE(SamplerTransientTestbench) {
     sca_tdf::sca_signal<double> sig_out;
     sca_tdf::sca_signal<bool> sig_sampling_trigger;   // 采样触发（TDF 域）
     sc_core::sc_signal<bool> sig_data_out_de;         // Sampler DE 输出 -> Monitor DE 桥接输入
+    sc_core::sc_signal<double> sig_vref_thr_dummy;    // 动态门限（本 tb 不使用 → 0 = 静态门限）
     
     TestScenario m_scenario;
     RxSamplerParams m_params;
@@ -185,6 +186,7 @@ SC_MODULE(SamplerTransientTestbench) {
         // 采样触发源 -> Sampler（被动式采样：每 UI 一次触发）
         trigger_src->trigger_out(sig_sampling_trigger);
         sampler->sampling_trigger(sig_sampling_trigger);
+        sampler->vref_threshold_de(sig_vref_thr_dummy);
         
         // 连接采样器
         sampler->in_p(sig_in_p);

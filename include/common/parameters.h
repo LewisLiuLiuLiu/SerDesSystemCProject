@@ -302,6 +302,7 @@ struct RxSamplerParams {
     double sample_delay;
     std::string phase_source;
     double resolution;
+    bool threshold_invert;           // 动态门限取负（-Vref 比较器用）；静态 threshold 不受影响
     
     // Offset configuration
     bool offset_enable;
@@ -318,6 +319,7 @@ struct RxSamplerParams {
         , sample_delay(0.0)
         , phase_source("clock")
         , resolution(0.02)
+        , threshold_invert(false)
         , offset_enable(false)
         , offset_value(0.0)
         , noise_enable(false)

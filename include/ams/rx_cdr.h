@@ -80,6 +80,15 @@ public:
     sca_tdf::sca_out<bool> sampling_trigger;
 
     /**
+     * @brief 数据采样触发输出（每 UI 恰 1 个，data 时刻）
+     *
+     * 与 sampling_trigger（edge+data 共 2/UI）不同，此端口仅在
+     * data 采样时刻置高，供 DFE Summer 的历史移位与 DfeAdaptTdf
+     * 的自适应频闪使用（2026-10，P0-3 时基修复）。
+     */
+    sca_tdf::sca_out<bool> data_trigger;
+
+    /**
      * @brief BBPD 相位误差输出（DE 域，单位：秒）
      *
      * 输出 m_last_phase_error * ui（±UI 或 0，三元 BBPD 结果），供

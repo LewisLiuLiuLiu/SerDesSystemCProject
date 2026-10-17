@@ -119,9 +119,11 @@ struct CdrTimebaseBench {
     AltDiffSource* src;
     RxCdrTdf* cdr;
     TriggerRecorder* rec;
+    TriggerRecorder* drec;                 // data_trigger 记录（1/UI）
     sca_tdf::sca_signal<double> s_in;
     sca_tdf::sca_signal<double> s_phase;
     sca_tdf::sca_signal<bool> s_trig;
+    sca_tdf::sca_signal<bool> s_dtrig;
     sc_core::sc_signal<double> s_pe_de;
     PeMonitor* pe_mon;
 
@@ -137,13 +139,16 @@ struct CdrTimebaseBench {
         src = new AltDiffSource((std::string(pfx) + "_src").c_str(), ts, ui);
         cdr = new RxCdrTdf((std::string(pfx) + "_cdr").c_str(), p);
         rec = new TriggerRecorder((std::string(pfx) + "_rec").c_str(), ts);
+        drec = new TriggerRecorder((std::string(pfx) + "_drec").c_str(), ts);
         pe_mon = new PeMonitor((std::string(pfx) + "_pemon").c_str(), ui);
         src->out(s_in);
         cdr->in(s_in);
         cdr->phase_out(s_phase);
         cdr->sampling_trigger(s_trig);
+        cdr->data_trigger(s_dtrig);
         cdr->phase_error_de(s_pe_de);
         rec->in(s_trig);
+        drec->in(s_dtrig);
         pe_mon->in(s_pe_de);
     }
 };
@@ -162,6 +167,14 @@ void check_timebase(const CdrTimebaseBench& b, const char* name,
     // 2) 无采样空档：任意相邻触发间隔 < ui + 2步（旧实现出现 16 UI 空档）
     EXPECT_LT(b.rec->max_gap(), ui + 2.0 * ts)
         << name << ": no gap larger than one UI (+ step-grid slack)";
+
+    // 2b) data_trigger：每 UI 恰 1 个，间距 ≈ ui（DFE 频闪，批次3）
+    EXPECT_NEAR(static_cast<double>(b.drec->fire_times.size()), n_ui, 2.0)
+        << name << ": data_trigger count must be 1 per UI";
+    EXPECT_LT(b.drec->max_gap(), ui + 2.0 * ts)
+        << name << ": data_trigger gap must be ~ui";
+    EXPECT_GT(b.drec->min_gap(), ui - 2.0 * ts)
+        << name << ": data_trigger gap must be ~ui";
 
     // 3) 间距规则：所有间隔落在 [ui/2 - ts, ui/2 + 2ts]（ceil 量化界内）
     EXPECT_GT(b.rec->min_gap(), ui / 2.0 - 2.0 * ts)

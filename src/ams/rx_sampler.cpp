@@ -10,6 +10,7 @@ RxSamplerTdf::RxSamplerTdf(sc_core::sc_module_name nm, const RxSamplerParams& pa
     , in_n("in_n")
     , clk_sample("clk_sample")
     , sampling_trigger("sampling_trigger")
+    , vref_threshold_de("vref_threshold_de")
     , data_out("data_out")
     , data_out_de("data_out_de")
     , m_params(params)
@@ -58,6 +59,13 @@ void RxSamplerTdf::processing() {
         // Calculate differential voltage
         double v_diff = v_in_p - v_in_n;
         
+        // Effective threshold: dynamic Vref command (>0) overrides static threshold
+        double thr = m_params.threshold;
+        double vref_cmd = vref_threshold_de.read();
+        if (vref_cmd > 0.0) {
+            thr = m_params.threshold_invert ? -vref_cmd : vref_cmd;
+        }
+        
         // Apply offset if enabled
         if (m_params.offset_enable) {
             v_diff += m_params.offset_value;
@@ -69,7 +77,7 @@ void RxSamplerTdf::processing() {
         }
         
         // Make decision and save
-        m_last_sampled_bit = make_decision(v_diff);
+        m_last_sampled_bit = make_decision(v_diff, thr);
     }
     // else: no trigger, keep previous value (sample-and-hold)
     
@@ -100,18 +108,19 @@ void RxSamplerTdf::validate_parameters() {
     }
 }
 
-bool RxSamplerTdf::make_decision(double v_diff) {
+bool RxSamplerTdf::make_decision(double v_diff, double thr) {
     bool bit_out;
     
-    // Check if we're in the fuzzy decision region
-    if (std::abs(v_diff) < m_params.resolution) {
+    // Check if we're in the fuzzy decision region (around the effective threshold,
+    // not around zero — 2026-10 fix for the ±Vref comparators)
+    if (std::abs(v_diff - thr) < m_params.resolution) {
         // Fuzzy region: random decision based on Bernoulli distribution
         bit_out = (m_decision_dist(m_rng) < 0.5) ? false : true;
     } else {
         // Deterministic region: hysteresis-based decision
-        if (v_diff > m_params.threshold + m_params.hysteresis / 2.0) {
+        if (v_diff > thr + m_params.hysteresis / 2.0) {
             bit_out = true;
-        } else if (v_diff < m_params.threshold - m_params.hysteresis / 2.0) {
+        } else if (v_diff < thr - m_params.hysteresis / 2.0) {
             bit_out = false;
         } else {
             bit_out = m_prev_bit;  // Hysteresis: maintain previous state

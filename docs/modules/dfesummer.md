@@ -4,8 +4,10 @@
 
 **Level**: AMS Sub-module (RX)  
 **Class Name**: `RxDfeSummerTdf`  
-**Current Version**: v0.5 (2025-12-21)  
+**Current Version**: v0.6 (2026-10-17)  
 **Status**: In Development
+
+> **2026-10 implementation revision (P0-3)**: the history buffer now shifts **once per data-sampling strobe** (`data_strobe`, from the CDR `data_trigger`, 1 per UI). The previous implementation shifted every TDF timestep; at ts=ui/10 the same decision was inserted 10 times, collapsing all taps into a single feedback on the most recent decision. Earlier chapters describing a `data_in` array interface are historical design notes; the implementation uses a scalar `data_in` (0/1) plus an internal history FIFO.
 
 ---
 

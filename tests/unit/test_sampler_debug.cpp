@@ -59,6 +59,7 @@ SC_MODULE(SamplerTestbench) {
     sca_tdf::sca_signal<double> sig_out;
     sca_tdf::sca_signal<bool> sig_trigger;
     sc_core::sc_signal<bool> sig_out_de;
+    sc_core::sc_signal<double> sig_vref_thr_dummy;  // 动态门限占位（0 = 静态门限）
     
     SamplerTestbench(sc_core::sc_module_name nm, const RxSamplerParams& params)
         : sc_core::sc_module(nm)
@@ -77,6 +78,7 @@ SC_MODULE(SamplerTestbench) {
         sampler->in_n(sig_in_n);
         sampler->clk_sample(sig_clk);
         sampler->sampling_trigger(sig_trigger);
+    sampler->vref_threshold_de(sig_vref_thr_dummy);
         sampler->data_out(sig_out);
         sampler->data_out_de(sig_out_de);
     }

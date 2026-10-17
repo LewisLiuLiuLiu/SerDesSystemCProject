@@ -15,6 +15,7 @@ RxDfeSummerTdf::RxDfeSummerTdf(sc_core::sc_module_name nm,
     , in_p("in_p")
     , in_n("in_n")
     , data_in("data_in")
+    , data_strobe("data_strobe")
     , out_p("out_p")
     , out_n("out_n")
     , tap1_de("tap1_de")
@@ -25,7 +26,6 @@ RxDfeSummerTdf::RxDfeSummerTdf(sc_core::sc_module_name nm,
     , m_params(params)
     , m_last_feedback(0.0)
     , m_de_ports_connected(false)
-    , m_last_bit(-1.0)
     , m_de_taps_initialized(false)
 {
     // 初始化抽头系数
@@ -46,6 +46,8 @@ void RxDfeSummerTdf::set_attributes()
     in_n.set_rate(1);
     data_in.set_rate(1);
     data_in.set_delay(1);  // 添加 1 个样本延迟，打破反馈环路
+    data_strobe.set_rate(1);
+    data_strobe.set_delay(1);  // 频闪比判决写入再晚 1 步，保证读到稳定判决
     out_p.set_rate(1);
     out_n.set_rate(1);
 }
@@ -70,10 +72,14 @@ void RxDfeSummerTdf::processing()
     }
     
     // ========================================================================
-    // 步骤 3: 读取历史判决并更新缓冲区
+    // 步骤 3: 读取历史判决；仅在数据采样频闪时移位一次（2026-10，P0-3）
     // ========================================================================
+    // 旧实现每 TDF 时间步都移位，ts=ui/10 时同一判决被重复插入 10 次，
+    // 所有抽头退化为对最近一个判决的单一反馈。
     double new_bit = data_in.read();
-    update_history(new_bit);
+    if (data_strobe.read()) {
+        update_history(new_bit);
+    }
     
     // ========================================================================
     // 步骤 4: 尝试从 DE 端口读取抽头更新

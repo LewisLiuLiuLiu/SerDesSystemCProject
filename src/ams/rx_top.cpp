@@ -23,6 +23,8 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     , m_sig_vref_neg_out("sig_vref_neg_out")
     , m_sig_cdr_phase("sig_cdr_phase")
     , m_sig_cdr_in("sig_cdr_in")
+    , m_sig_sampling_trigger("sig_sampling_trigger")
+    , m_sig_data_trigger("sig_data_trigger")
     , m_sig_data_feedback("sig_data_feedback")
     , m_sig_clk("sig_clk")
     , m_sig_amp_est_out("sig_amp_est_out")
@@ -57,6 +59,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     // AdaptionDe -> Sampler
     , m_sig_sampler_threshold_de("sig_sampler_threshold_de")
     , m_sig_sampler_hysteresis_de("sig_sampler_hysteresis_de")
+    , m_sig_zero_vref_de("sig_zero_vref_de")
     // CDR -> AdaptionDe
     , m_sig_phase_error_de("sig_phase_error_de")
     , m_sig_amplitude_rms_de("sig_amplitude_rms_de")
@@ -99,6 +102,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     RxSamplerParams vref_neg_params = sampler_params;
     vref_neg_params.threshold = vref_neg;
     vref_neg_params.hysteresis = 0.0;
+    vref_neg_params.threshold_invert = true;  // 动态门限取 -vref_cmd
     m_vref_neg_sampler = new RxSamplerTdf("vref_neg_sampler", vref_neg_params);
 
     m_cdr = new RxCdrTdf("cdr", m_params.cdr);
@@ -189,11 +193,19 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_vref_pos_sampler->clk_sample(m_sig_clk);
     m_vref_neg_sampler->clk_sample(m_sig_clk);
 
-    // CDR sampling trigger -> all three comparators
+    // CDR sampling trigger -> main sampler（edge+data 双相 2/UI，供 BBPD）
     m_cdr->sampling_trigger(m_sig_sampling_trigger);
     m_sampler->sampling_trigger(m_sig_sampling_trigger);
-    m_vref_pos_sampler->sampling_trigger(m_sig_sampling_trigger);
-    m_vref_neg_sampler->sampling_trigger(m_sig_sampling_trigger);
+
+    // Vref 比较器由数据频闪驱动（1/UI）：只产生数据中心判决，供 DFE 使用
+    m_vref_pos_sampler->sampling_trigger(m_sig_data_trigger);
+    m_vref_neg_sampler->sampling_trigger(m_sig_data_trigger);
+
+    // AGC/Vref 闭环（2026-10）：AdaptionDe.vref_cmd → ±Vref 比较器动态门限
+    m_vref_pos_sampler->vref_threshold_de(m_sig_vref_cmd_de);
+    m_vref_neg_sampler->vref_threshold_de(m_sig_vref_cmd_de);
+    // 主采样器保持 slicer@0：门限占位恒 0
+    m_sampler->vref_threshold_de(m_sig_zero_vref_de);
 
     // Main sampler output (data_out) -> downstream
     m_sampler->data_out(m_sig_sampler_out);
@@ -208,8 +220,10 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_sampler_splitter->out2(m_sig_cdr_in);         // -> CDR
 
     m_dfe_summer->data_in(m_sig_data_feedback);
+    m_dfe_summer->data_strobe(m_sig_data_trigger);   // DFE 历史每 UI 移位一次（P0-3）
     m_cdr->in(m_sig_cdr_in);
     m_cdr->phase_out(m_sig_cdr_phase);
+    m_cdr->data_trigger(m_sig_data_trigger);         // 数据频闪（1/UI）
     // BBPD 相位误差 → AdaptionDe（真实接线，2026-10；此前为假常量 0.0）
     m_cdr->phase_error_de(m_sig_phase_error_de);
 
@@ -236,7 +250,8 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_dfe_adapt->data_in(m_sig_sampler_out);
     m_dfe_adapt->vref_pos_in(m_sig_vref_pos_out);
     m_dfe_adapt->vref_neg_in(m_sig_vref_neg_out);
-    m_dfe_adapt->sampling_trigger(m_sig_sampling_trigger);
+    // 自适应频闪 = CDR data_trigger（每 UI 1 个；2026-10 取代内部硬编码 100ps 触发）
+    m_dfe_adapt->sampling_trigger(m_sig_data_trigger);
 
     // DE control inputs
     m_dfe_adapt->mode_de(m_sig_mode_de);

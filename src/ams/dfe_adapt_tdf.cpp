@@ -102,6 +102,10 @@ void DfeAdaptTdf::set_attributes()
     vref_pos_in.set_rate(1);
     vref_neg_in.set_rate(1);
     sampling_trigger.set_rate(1);
+    // 频闪比比较器输出再晚 1 步：CDR data_trigger 端口已延迟 1 步，
+    // 此处再延迟 1 步共 2 步，确保读到的 d/s/s' 是同一 UI 的稳定数据判决
+    // （2026-10，P0-3 时基修复）。
+    sampling_trigger.set_delay(1);
 }
 
 void DfeAdaptTdf::initialize()
@@ -120,26 +124,18 @@ void DfeAdaptTdf::processing()
     double d_raw = data_in.read();            // Main sampler output (0 or 1)
     double s_pos_raw = vref_pos_in.read();    // +Vref comparator output (0 or 1)
     double s_neg_raw = vref_neg_in.read();    // -Vref comparator output (0 or 1)
-    // Note: trigger is now generated internally (see Step 1b)
+    // 数据采样频闪（来自 CDR data_trigger，每 UI 1 个）
+    bool trigger = sampling_trigger.read();
 
     // Read DE control inputs
     int current_mode = static_cast<int>(mode_de.read());
     bool reset = static_cast<bool>(reset_de.read());
     
     // ========================================================================
-    // Step 1b: Generate internal trigger based on time (not external signal)
-    // This avoids cluster synchronization issues between CDR and DFE adaptation
+    // Step 1b: （已删除）此前按硬编码 100ps UI 自建内部触发。
+    //          2026-10 起统一使用 CDR data_trigger 真实频闪（P0-3），
+    //          UI 由 RxCdrTdf 时基决定，不再有魔数。
     // ========================================================================
-    static double last_ui_time = -1.0;
-    double current_time = get_time().to_seconds();
-    double ui_seconds = 100e-12;  // 100 ps for 10 Gbps (should be from config)
-    double current_ui = std::floor(current_time / ui_seconds);
-    
-    bool trigger = false;
-    if (current_ui > last_ui_time) {
-        trigger = true;
-        last_ui_time = current_ui;
-    }
 
     // ========================================================================
     // Step 2: Handle reset
@@ -359,22 +355,14 @@ void DfeAdaptTdf::reset_stats()
 // ============================================================================
 void DfeAdaptTdf::adapt_vref()
 {
-    // Read Vref command from AdaptionDe (if connected), otherwise self-adapt
+    // 单控制器架构（2026-10）：Vref 由 AdaptionDe.update_vref_command()
+    // 统一生成，经 vref_cmd_de 下发；本模块仅镜像该命令用于监测输出
+    // （vref_current），不再自行闭环，避免双控制器/双积分。
+    // 命令无效（非有限或 ≤0）时保持当前值。
     double vref_cmd = vref_cmd_de.read();
     if (std::isfinite(vref_cmd) && vref_cmd > 0.0) {
         m_current_vref = vref_cmd;
-        return;
     }
-
-    // Self-adapt based on confidence metric
-    // Target: C = target_confidence (e.g. 0.7)
-    // If C < target, Vref is too high (too few samples exceed Vref), decrease Vref
-    // If C > target, Vref is too low, increase Vref
-    double error = m_C - m_vref_params.target_confidence;
-    m_current_vref *= (1.0 + m_vref_params.adapt_alpha * error);
-
-    // Clamp Vref to reasonable range
-    m_current_vref = clamp(m_current_vref, 0.01, 0.5);
 }
 
 // ============================================================================

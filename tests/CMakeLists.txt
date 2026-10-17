@@ -137,6 +137,7 @@ set(SAMPLER_TESTS
     sampler_output_range_pos05      # 输出范围正0.5测试
     sampler_de_output               # DE输出测试
     sampler_de_negative_input       # DE负输入测试
+    sampler_dynamic_threshold       # 动态门限（Vref 闭环）+ 模糊判决围绕门限
 )
 
 create_test_executables("${SAMPLER_TESTS}")
@@ -249,6 +250,8 @@ set(DFE_TESTS
     dfe_basic                       # DFE基础功能测试
     dfe_tap_feedback                # DFE抽头反馈测试
     dfe_history_update              # DFE历史缓冲区测试
+    dfe_summer_strobe               # Summer 历史频闪/多抽头对齐（P0-3）
+    dfe_adapt_strobe                # DfeAdaptTdf 真实频闪时基 + vref 镜像（P0-3）
 )
 
 create_test_executables("${DFE_TESTS}")

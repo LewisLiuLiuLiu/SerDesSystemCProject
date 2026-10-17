@@ -34,6 +34,9 @@ public:
     sca_tdf::sca_in<double> vref_neg_in;      // -Vref comparator s'_k (threshold = -Vref)
 
     // Sampling trigger (shared with main sampler, from CDR)
+    // 2026-10: 由 CDR 的 data_trigger 驱动（每 UI 1 个，data 时刻），
+    // 不再使用内部硬编码 100ps 触发。输入端口整体延迟 1 步，
+    // 与比较器输出对齐（P0-3）。
     sca_tdf::sca_in<bool> sampling_trigger;
 
     // ========================================================================
@@ -186,6 +189,9 @@ private:
 
     /**
      * @brief Adapt Vref based on statistics (if enabled)
+     *
+     * 2026-10：单控制器架构——本函数仅镜像 AdaptionDe 下发的 vref_cmd
+     * 用于监测输出，不再自闭环（避免与 AdaptionDe 双积分）。
      */
     void adapt_vref();
 

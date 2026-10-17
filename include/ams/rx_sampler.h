@@ -27,6 +27,16 @@ public:
     sca_tdf::sca_in<double> clk_sample;      // Clock input for clock-driven mode
     sca_tdf::sca_in<bool> sampling_trigger;  // Sampling trigger from CDR (phase-driven mode)
     
+    /**
+     * @brief 动态判决门限（DE 域，来自 AdaptionDe.vref_cmd）
+     *
+     * 输入为正值标量（V）。>0 时覆盖静态 threshold：
+     *   thr = threshold_invert ? -vref_cmd : vref_cmd
+     * 未驱动（0）时保持静态 threshold（主采样器即 slicer@0）。
+     * 2026-10：Vref 闭环接线（单控制器：AdaptionDe 生成 → 比较器门限）。
+     */
+    sca_tdf::sca_de::sca_in<double> vref_threshold_de;
+    
     // Digital outputs
     sca_tdf::sca_out<double> data_out;      // TDF domain output (analog-compatible)
     sca_tdf::sca_de::sca_out<bool> data_out_de;  // TDF to DE domain bridge output
@@ -81,9 +91,10 @@ private:
     /**
      * @brief Make decision based on input voltage
      * @param v_diff Differential input voltage
+     * @param thr Effective decision threshold (static or dynamic Vref)
      * @return Decision result (true for high, false for low)
      */
-    bool make_decision(double v_diff);
+    bool make_decision(double v_diff, double thr);
 };
 }
 #endif

@@ -159,6 +159,7 @@ SC_MODULE(SamplerBasicTestbench) {
     sca_tdf::sca_signal<double> sig_out;
     sca_tdf::sca_signal<bool> sig_trigger;
     sc_core::sc_signal<bool> sig_out_de;  // DE domain signal for sca_tdf::sca_de::sca_out
+    sc_core::sc_signal<double> sig_vref_thr_dummy;  // 动态门限（测试不用 → 0 = 静态门限）
     
     RxSamplerParams params;
     double input_amplitude;
@@ -186,6 +187,7 @@ SC_MODULE(SamplerBasicTestbench) {
         sampler->in_n(sig_in_n);
         sampler->clk_sample(sig_clk);
         sampler->sampling_trigger(sig_trigger);
+        sampler->vref_threshold_de(sig_vref_thr_dummy);
         sampler->data_out(sig_out);
         sampler->data_out_de(sig_out_de);
     }

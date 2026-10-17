@@ -81,9 +81,11 @@ int sc_main(int argc, char* argv[]) {
     sca_tdf::sca_signal<double> sig_driver_out_n;  // TX Driver 差分负端输出（未使用）
     sca_tdf::sca_signal<double> sig_vga_out_n;     // VGA 差分负端输出（未使用）
     sca_tdf::sca_signal<bool> sig_sampling_trigger;  // CDR -> Sampler 采样触发
+    sca_tdf::sca_signal<bool> sig_data_trigger_dummy;  // CDR 数据频闪（本 tb 不使用）
     sc_core::sc_signal<bool> sig_sampler_de_dummy;   // Sampler DE 输出（未使用）
     sc_core::sc_signal<double> sig_vga_gain_cmd_de;  // VGA AGC 增益命令（未使用 → 0 = 静态增益）
     sc_core::sc_signal<double> sig_cdr_phase_error_de;  // CDR BBPD 误差 DE 输出（未使用，绑定以满足精化要求）
+    sc_core::sc_signal<double> sig_sampler_vref_dummy;  // Sampler 动态门限（未使用 → 0 = 静态门限）
     
     // 常量源（差分负端 / vdd 供电）
     ConstSource v_zero("v_zero", 0.0, params.global.Fs);
@@ -148,6 +150,7 @@ int sc_main(int argc, char* argv[]) {
     rx_sampler.in_n(sig_zero);
     rx_sampler.clk_sample(sig_zero);        // 未使用（触发式采样），绑定以满足精化要求
     rx_sampler.sampling_trigger(sig_sampling_trigger);
+    rx_sampler.vref_threshold_de(sig_sampler_vref_dummy);
     rx_sampler.data_out(sig_sampler_out);
     rx_sampler.data_out_de(sig_sampler_de_dummy);
     rx_dfe.in(sig_sampler_out);
@@ -155,6 +158,7 @@ int sc_main(int argc, char* argv[]) {
     rx_cdr.in(sig_dfe_out);
     rx_cdr.phase_out(sig_cdr_phase_out);
     rx_cdr.sampling_trigger(sig_sampling_trigger);  // CDR 采样触发 -> Sampler
+    rx_cdr.data_trigger(sig_data_trigger_dummy);
     rx_cdr.phase_error_de(sig_cdr_phase_error_de);
     
     // 创建 trace 文件
