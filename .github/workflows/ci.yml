@@ -109,4 +109,14 @@ jobs:
         run: cmake --build build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
       - name: Run full test suite (ctest)
-        run: cd build && ctest --output-on-failure -j4
+        run: |
+          cd build
+          set +e
+          ctest --output-on-failure -j4 2>&1 | tee ctest.log
+          rc=${PIPESTATUS[0]}
+          if [ $rc -ne 0 ]; then
+            # 把失败测试名转成 annotation（无需登录即可通过 check-runs API 读取，
+            # 便于在无法访问 Actions 日志的环境下定位失败）
+            awk '/The following tests FAILED/{flag=1} flag' ctest.log | sed 's/^/::error::/' || true
+          fi
+          exit $rc
