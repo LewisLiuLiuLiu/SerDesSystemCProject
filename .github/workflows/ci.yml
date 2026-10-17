@@ -118,7 +118,7 @@ jobs:
             # 把失败测试名与 gtest 断言上下文转成 annotation（公开 check-runs
             # API 可匿名读取，便于在无法访问 Actions 日志的环境下定位失败）
             awk '/The following tests FAILED/{flag=1} flag' ctest.log | sed 's/^/::error::/' || true
-            grep -E "\[vref-loop\]|Failure$|Expected:|Actual:|evaluates to|Which is:" ctest.log \
+            grep -E "\[vref-loop\]|\[latch\]|unexpected output|Failure$|Expected:|Actual:|evaluates to|Which is:" ctest.log \
               | head -40 | sed 's/^/::error::/' || true
           fi
           exit $rc
