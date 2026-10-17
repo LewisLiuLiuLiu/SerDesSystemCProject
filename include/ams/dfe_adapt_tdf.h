@@ -147,6 +147,7 @@ private:
     bool m_hold_data;                    // Held data from last trigger
     bool m_hold_s_pos;                   // Held +Vref comparator from last trigger
     bool m_hold_s_neg;                   // Held -Vref comparator from last trigger
+    bool m_initial_publish_done;         // 首次 processing 是否已发布确定 DE 初值
 
     // ========================================================================
     // Internal Methods

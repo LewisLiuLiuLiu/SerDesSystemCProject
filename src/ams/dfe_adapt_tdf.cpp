@@ -79,6 +79,7 @@ DfeAdaptTdf::DfeAdaptTdf(sc_core::sc_module_name nm,
     , m_hold_data(false)
     , m_hold_s_pos(false)
     , m_hold_s_neg(false)
+    , m_initial_publish_done(false)
 {
     // Initialize taps
     for (int i = 0; i < MAX_TAPS; ++i) {
@@ -118,6 +119,25 @@ void DfeAdaptTdf::initialize()
 
 void DfeAdaptTdf::processing()
 {
+    // ========================================================================
+    // Step 0: 首次调用时发布确定的 DE 初值（2026-10）
+    // ========================================================================
+    // initialize() 中不能写 sca_de 端口。若首个统计周期前不写，DE 转换端口
+    // 的未初始化缓冲会跨平台呈现不同值（Linux 曾把 stat_state 读成非 0，
+    // 导致 AdaptionDe 的 Vref 控制器提前按 ACQUIRE/TRACK 分支动作）。
+    if (!m_initial_publish_done) {
+        stat_state.write(m_state);       // 0 = STARTUP
+        stat_mu.write(m_current_mu);
+        stat_C.write(m_C);
+        stat_P_pos.write(m_P_pos);
+        stat_P_neg.write(m_P_neg);
+        stat_Delta.write(m_Delta);
+        stat_update_count.write(m_update_count);
+        vref_current.write(m_current_vref);
+        write_tap_outputs();
+        m_initial_publish_done = true;
+    }
+
     // ========================================================================
     // Step 1: Read inputs
     // ========================================================================
