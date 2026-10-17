@@ -607,14 +607,22 @@ class ConfigGenerator:
             vf_result: Vector fitting result dictionary
         """
         self.config['method'] = 'rational'
+        num = np.asarray(vf_result['num'], dtype=float)
+        den = np.asarray(vf_result['den'], dtype=float)
         self.config['filters'][name] = {
-            'num': vf_result['num'].tolist(),
-            'den': vf_result['den'].tolist(),
+            # Normalized variable u = s / s_scale (2026-10):
+            #   H_rational(s) = polyval(num, s/s_scale) / polyval(den, s/s_scale)
+            #   full transfer = H_rational(s) * exp(-s * delay_s)
+            'num': num.tolist(),
+            'den': den.tolist(),
+            's_scale': float(vf_result.get('s_scale', 1.0)),
+            'delay_s': float(vf_result.get('delay', 0.0)),
             'order': int(vf_result['order']),
-            'dc_gain': float(vf_result['num'][-1] / vf_result['den'][-1]) 
-                       if vf_result['den'][-1] != 0 else 0.0,
+            'dc_gain': float(num[-1] / den[-1]) if den[-1] != 0 else 0.0,
             'mse': float(vf_result['mse']),
-            'max_error': float(vf_result['max_error'])
+            'max_error': float(vf_result['max_error']),
+            'rel_rms': float(vf_result.get('rel_rms', float('nan'))),
+            'median_error_db': float(vf_result.get('median_error_db', float('nan'))),
         }
     
     def add_impulse_response(self, name, ir_result):
@@ -728,21 +736,16 @@ def process_sparam(input_file, output_file, method='both', fs=100e9,
         
         logger.info(f"Processing {sparam}")
         
-        # Rational fitting method
-        # NOTE (2026-10): 当前 VectorFitting 只返回 poles/residues/d/e，
-        # 尚未实现 num/den/mse 导出；-m rational 会给出明确错误，
-        # CLI 默认已改为可用的 impulse。
+        # Rational fitting method (delay-aware VF, 2026-10)
         if method in ['rational', 'both']:
             vf = VectorFitting(order=order)
             vf_result = vf.fit(2j * np.pi * freq, S_data)  # VF expects rad/s
-            if 'num' not in vf_result or 'den' not in vf_result:
-                msg = ("rational filter export (num/den) is not implemented by the "
-                       "current VectorFitting; use '-m impulse'")
-                if method == 'rational':
-                    raise NotImplementedError(msg)
-                logger.warning(msg + " — skipping rational part")
-            else:
-                config_gen.add_rational_filter(sparam, vf_result)
+            logger.info("%s: VF order=%d delay=%.3f ns rel_rms=%.2e "
+                        "median dB err=%.2f",
+                        sparam, order, vf_result.get('delay', 0.0)*1e9,
+                        vf_result.get('rel_rms', float('nan')),
+                        vf_result.get('median_error_db', float('nan')))
+            config_gen.add_rational_filter(sparam, vf_result)
         
         # Impulse response method
         if method in ['impulse', 'both']:
@@ -770,8 +773,8 @@ def main():
                        help='Output configuration file (default: channel_config.json)')
     parser.add_argument('-m', '--method', choices=['rational', 'impulse', 'both'],
                        default='impulse',
-                       help='Processing method (default: impulse; rational/both '
-                            'require the VF num/den export, not yet implemented)')
+                       help='Processing method (default: impulse; rational exports '
+                            'a delay-aware VF model, impulse drives the simulator)')
     parser.add_argument('-f', '--fs', type=float, default=100e9,
                        help='Sampling frequency in Hz (default: 100e9)')
     parser.add_argument('--order', type=int, default=8,

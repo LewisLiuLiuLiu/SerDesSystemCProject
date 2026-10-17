@@ -158,6 +158,7 @@ SC_MODULE(ChannelSparamTestbench) {
     // Signals
     sca_tdf::sca_signal<double> sig_input;
     sca_tdf::sca_signal<double> sig_output;
+    std::vector<sca_tdf::sca_signal<double>*> sig_extra_out;  // MIMO 未用输出占位
     
     // Parameters
     WaveGenParams m_wave_params;
@@ -320,6 +321,18 @@ SC_MODULE(ChannelSparamTestbench) {
         wave_gen->out(sig_input);
         channel->in[0](sig_input);
         channel->out[0](sig_output);
+        // MIMO configs (e.g. 2x2 state-space): bind all remaining ports.
+        // Unused inputs share the excitation; each unused output needs its own
+        // signal (a TDF signal can have only one writer). 2026-10.
+        for (unsigned i = 1; i < channel->in.size(); ++i) {
+            channel->in[i](sig_input);
+        }
+        for (unsigned i = 1; i < channel->out.size(); ++i) {
+            auto* extra = new sca_tdf::sca_signal<double>(
+                (std::string("sig_output_") + std::to_string(i)).c_str());
+            sig_extra_out.push_back(extra);
+            channel->out[i](*extra);
+        }
         recorder->in_signal(sig_input);
         recorder->out_signal(sig_output);
         

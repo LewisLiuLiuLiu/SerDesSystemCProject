@@ -30,7 +30,38 @@ def find_latest_dfe_file():
     # Return most recently modified file
     return max(files, key=os.path.getmtime)
 
+def resolve_ui_from_metadata(waveform_file):
+    """Resolve UI (seconds) from <prefix>_metadata.json next to the CSV.
+
+    2026-10: UI used to be hardcoded to 100 ps (10 Gbps), which distorts the
+    eye for any other data rate. TBs write <prefix>_metadata.json with ui_ps.
+    """
+    import json
+    base = os.path.basename(waveform_file)
+    prefix = base.rsplit('_', 1)[0] if '_' in base else os.path.splitext(base)[0]
+    meta = os.path.join(os.path.dirname(os.path.abspath(waveform_file)),
+                        prefix + '_metadata.json')
+    if os.path.exists(meta):
+        try:
+            with open(meta) as f:
+                d = json.load(f)
+            if d.get('ui_ps'):
+                print(f"  UI from metadata ({os.path.basename(meta)}): {d['ui_ps']:.1f} ps")
+                return float(d['ui_ps']) * 1e-12
+        except Exception as e:
+            print(f"  Warning: failed to read {meta}: {e}")
+    print("  Warning: UI metadata not found; falling back to 100 ps (10 Gbps)")
+    return 100e-12
+
+
 def main():
+    # Optional --ui-ps override (consumed before positional parsing)
+    ui_override = None
+    if '--ui-ps' in sys.argv:
+        k = sys.argv.index('--ui-ps')
+        ui_override = float(sys.argv[k + 1]) * 1e-12
+        del sys.argv[k:k + 2]
+
     # Parse arguments
     if len(sys.argv) > 1:
         dfe_file = sys.argv[1]
@@ -74,8 +105,8 @@ def main():
     print(f"  Duration: {time_array[-1] - time_array[0]:.3e} s")
     print(f"  Voltage range: {voltage_array.min():.3f} V to {voltage_array.max():.3f} V")
     
-    # UI for 10 Gbps = 100 ps
-    ui = 100e-12  # 100 ps
+    # UI: metadata-driven (2026-10), with --ui-ps override
+    ui = ui_override if ui_override else resolve_ui_from_metadata(dfe_file)
     
     print(f"\nAnalyzing eye diagram...")
     print(f"  UI: {ui*1e12:.1f} ps ({1/ui/1e9:.1f} Gbps)")
@@ -117,7 +148,7 @@ def main():
             time_bins=time_bins,
             voltage_bins=voltage_bins,
             eye_metrics=eye_metrics,
-            title='DFE Output Eye Diagram (10 Gbps NRZ)',
+            title=f'DFE Output Eye Diagram ({1/ui/1e9:.1f} Gbps NRZ)',
             smooth_sigma=0.0  # No smoothing for Bresenham rasterized eye to preserve sharp transitions
         )
         plt.savefig(output_file, dpi=300, bbox_inches='tight')

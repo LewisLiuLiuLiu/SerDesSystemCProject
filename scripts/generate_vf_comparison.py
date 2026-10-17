@@ -1,177 +1,163 @@
 #!/usr/bin/env python3
 """
-Generate vector fitting comparison plots for DVcon paper:
-1. Proposed implementation vs Matlab vectfit3
-2. Proposed implementation vs scikit-rf
+Vector Fitting quality report for a real Touchstone file (2026-10 rewrite).
 
-This script generates Figure 3 and Figure 4 for the paper.
+Replaces the previous version, which drew synthetic np.random "fitting errors"
+for paper figures. Everything here is computed from the given S-parameter file:
+
+  * delay-aware Vector Fitting (delay estimated from phase slope, de-embedded,
+    refit, re-applied for evaluation)
+  * order sweep with relative-RMS and dB error metrics
+  * usable-band statistics (|S21| >= max|S21|/10, i.e. within 20 dB of peak)
+  * measured-vs-fitted magnitude and unwrapped phase
+
+Usage:
+  python3 scripts/generate_vf_comparison.py <file.s4p> [--sparam S21]
+      [--orders 4,6,8,12,16,20] [--out output_eye]
+
+Outputs (default output_eye/):
+  vf_error_vs_order.png   - relative RMS / median dB error vs order
+  vf_fit_vs_measured.png  - measured vs fitted |S| and phase (best order)
+
+Requires: numpy, matplotlib, scikit-rf.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-import sys
+import argparse
+import logging
 import os
+import sys
 
-def load_sparam_data(s4p_file):
-    """Load S-parameter data from Touchstone file."""
-    try:
-        import skrf
-        nw = skrf.Network(s4p_file)
-        freq = nw.frequency.f  # Already in Hz
-        # For 4-port, get S21 (port 1 to port 2)
-        s21 = nw.s[:, 1, 0]  # S21
-        return freq, s21
-    except ImportError:
-        print("Warning: skrf not available, using simplified approach")
-        # Fallback: create synthetic data for demonstration
-        freq = np.linspace(50e6, 20e9, 1000)
-        # Simulate a typical channel response
-        s21 = np.exp(-1j * 2 * np.pi * freq * 1e-9) * (1 / (1 + 1j * freq / 5e9))
-        return freq, s21
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
-def generate_plot1(s4p_file, output_file):
-    """
-    Figure 3: Vector Fitting Comparison - Proposed vs Matlab vectfit3
-    
-    Since we don't have actual Matlab data, we show:
-    - Original S21 from S4P file (black)
-    - Proposed Python implementation (blue, solid)
-    - Theoretical perfect fit (red, dashed) - representing Matlab reference
-    """
-    freq, s21 = load_sparam_data(s4p_file)
-    freq_ghz = freq / 1e9
-    s21_db = 20 * np.log10(np.abs(s21) + 1e-20)
-    
-    # Simulate fitted response (in reality this would come from actual fitting)
-    # For demonstration, we use the original data with small noise
-    np.random.seed(42)
-    noise = np.random.normal(0, 0.05, len(s21_db))
-    s21_fitted = s21_db + noise
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Plot original S21
-    ax.plot(freq_ghz, s21_db, 'k-', linewidth=2, label='Original S-parameters (S4P)', alpha=0.7)
-    
-    # Plot proposed implementation
-    ax.plot(freq_ghz, s21_fitted, 'b-', linewidth=2, label='Proposed Python Implementation')
-    
-    # Plot Matlab vectfit3 reference (ideal case)
-    ax.plot(freq_ghz, s21_db, 'r--', linewidth=2, label='Matlab vectfit3 (reference)', alpha=0.8)
-    
-    ax.set_xlabel('Frequency [GHz]', fontsize=12)
-    ax.set_ylabel('S21 Magnitude [dB]', fontsize=12)
-    ax.set_title('Figure 3. Vector Fitting Comparison: Proposed Implementation vs Matlab vectfit3', 
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11, loc='best')
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim([0, min(20, freq_ghz[-1])])
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=150, bbox_inches='tight')
-    print(f"✓ Figure 3 saved to: {output_file}")
-    plt.close()
 
-def generate_plot2(s4p_file, output_file):
-    """
-    Figure 4: Fitting Error Comparison - Proposed vs scikit-rf
-    
-    Shows the fitting error (difference from original S-parameters)
-    """
-    freq, s21 = load_sparam_data(s4p_file)
-    freq_ghz = freq / 1e9
-    s21_db = 20 * np.log10(np.abs(s21) + 1e-20)
-    
-    # Simulate errors for both methods
-    np.random.seed(42)
-    
-    # scikit-rf typically has higher error (0.2-0.5 dB RMS)
-    error_skrf = np.random.normal(0, 0.3, len(s21_db))
-    # Add some frequency-dependent structure
-    error_skrf += 0.1 * np.sin(2 * np.pi * freq_ghz / 10)
-    
-    # Proposed implementation has lower error (0.05-0.1 dB RMS)
-    error_proposed = np.random.normal(0, 0.08, len(s21_db))
-    error_proposed += 0.02 * np.sin(2 * np.pi * freq_ghz / 10)
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Plot scikit-rf error
-    ax.plot(freq_ghz, error_skrf, 'r-', linewidth=2, label='scikit-rf vector_fitting', alpha=0.8)
-    
-    # Plot proposed implementation error
-    ax.plot(freq_ghz, error_proposed, 'b-', linewidth=2, label='Proposed Python Implementation')
-    
-    # Zero reference line
-    ax.axhline(y=0, color='k', linestyle='--', linewidth=1, alpha=0.5)
-    
-    ax.set_xlabel('Frequency [GHz]', fontsize=12)
-    ax.set_ylabel('Fitting Error [dB]', fontsize=12)
-    ax.set_title('Figure 4. Fitting Error Comparison: Proposed Implementation vs scikit-rf', 
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11, loc='best')
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim([0, min(20, freq_ghz[-1])])
-    
-    # Calculate statistics
-    rmse_skrf = np.sqrt(np.mean(error_skrf**2))
-    rmse_proposed = np.sqrt(np.mean(error_proposed**2))
-    improvement = ((rmse_skrf - rmse_proposed) / rmse_skrf) * 100
-    
-    ax.text(0.05, 0.95, 
-            f'scikit-rf RMSE: {rmse_skrf:.3f} dB\n'
-            f'Proposed RMSE: {rmse_proposed:.3f} dB\n'
-            f'Improvement: {improvement:.1f}%',
-            transform=ax.transAxes, fontsize=11,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=150, bbox_inches='tight')
-    print(f"✓ Figure 4 saved to: {output_file}")
-    print(f"\nStatistics:")
-    print(f"  scikit-rf RMSE:    {rmse_skrf:.3f} dB")
-    print(f"  Proposed RMSE:     {rmse_proposed:.3f} dB")
-    print(f"  Improvement:       {improvement:.1f}%")
-    plt.close()
+def load_sparam(path, sparam):
+    """Load S-parameter from a Touchstone file. Returns freq (Hz), H (complex)."""
+    import skrf
+    nw = skrf.Network(path)
+    a = int(sparam[1]) - 1
+    b = int(sparam[2]) - 1
+    if a >= nw.nports or b >= nw.nports:
+        raise SystemExit(f"{sparam} out of range for an {nw.nports}-port file")
+    return nw.frequency.f.copy(), nw.s[:, a, b].copy()
+
+
+def usable_mask(mag_db, rel_db=-20.0):
+    """Points within rel_db of the peak magnitude."""
+    return mag_db >= (np.max(mag_db) + rel_db)
+
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 generate_vf_comparison.py <s4p_file>")
-        print("Example: python3 generate_vf_comparison.py peters_01_0605_B12_thru.s4p")
-        sys.exit(1)
-    
-    s4p_file = sys.argv[1]
-    
-    if not os.path.exists(s4p_file):
-        print(f"Error: File '{s4p_file}' not found!")
-        sys.exit(1)
-    
-    print("=" * 60)
-    print("Generating Vector Fitting Comparison Plots for DVcon Paper")
-    print("=" * 60)
-    print(f"\nInput S4P file: {s4p_file}")
-    
-    # Create output directory
-    output_dir = 'output_eye'
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Generate Figure 3
-    fig3_file = os.path.join(output_dir, 'vf_comparison_matlab.png')
-    generate_plot1(s4p_file, fig3_file)
-    
-    # Generate Figure 4
-    fig4_file = os.path.join(output_dir, 'vf_error_comparison.png')
-    generate_plot2(s4p_file, fig4_file)
-    
-    print("\n" + "=" * 60)
-    print("Generation Complete!")
-    print("=" * 60)
-    print(f"\nGenerated files:")
-    print(f"  Figure 3: {fig3_file}")
-    print(f"  Figure 4: {fig4_file}")
-    print("\n⚠️  Note: These plots use simulated fitting data for demonstration.")
-    print("   For the actual paper, you should replace with real fitting results.")
+    parser = argparse.ArgumentParser(
+        description="Delay-aware Vector Fitting quality report (real data only)")
+    parser.add_argument("touchstone", help="Touchstone file (.s2p/.s4p)")
+    parser.add_argument("--sparam", default="S21", help="S-parameter to fit (default S21)")
+    parser.add_argument("--orders", default="4,6,8,12,16,20",
+                        help="Comma-separated pole counts (default 4,6,8,12,16,20)")
+    parser.add_argument("--out", default="output_eye", help="Output directory")
+    args = parser.parse_args()
 
-if __name__ == '__main__':
+    logging.disable(logging.WARNING)   # VF logs are noisy for sweeps
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from vector_fitting import VectorFitting, evaluate_fit
+
+    if not os.path.exists(args.touchstone):
+        raise SystemExit(f"File not found: {args.touchstone}")
+
+    freq, H = load_sparam(args.touchstone, args.sparam)
+    s = 2j * np.pi * freq
+    mag_db = 20 * np.log10(np.abs(H) + 1e-20)
+    band = usable_mask(mag_db)
+    orders = [int(o) for o in args.orders.split(",") if o.strip()]
+
+    print("=" * 66)
+    print(f"VF quality report: {args.touchstone}  ({args.sparam})")
+    print(f"points={len(freq)}  band={freq[0]/1e9:.3f}-{freq[-1]/1e9:.3f} GHz")
+    print("=" * 66)
+    print(f"{'order':>5} {'delay_ns':>9} {'relRSS':>9} {'medDB*':>7} "
+          f"{'p90DB*':>7} {'maxDB*':>7}")
+    print("-" * 66)
+
+    rows = []
+    best = None
+    for order in orders:
+        vf = VectorFitting(order=order)
+        r = vf.fit(s, H)
+        Hm = evaluate_fit(s, r)
+        dberr = np.abs(20*np.log10(np.abs(Hm) + 1e-20) - 20*np.log10(np.abs(H) + 1e-20))
+        med = float(np.median(dberr[band]))
+        p90 = float(np.percentile(dberr[band], 90))
+        mx = float(np.max(dberr[band]))
+        rows.append(dict(order=order, delay=r["delay"], rel=r["rel_rms"],
+                         med=med, p90=p90, max=mx, result=r, fit=Hm))
+        print(f"{order:5d} {r['delay']*1e9:9.3f} {r['rel_rms']:9.3e} "
+              f"{med:7.2f} {p90:7.2f} {mx:7.2f}")
+        if best is None or r["rel_rms"] < best["rel"]:
+            best = rows[-1]
+    print("-" * 66)
+    print("* dB error within the usable band (|S| >= max|S| - 20 dB), "
+          f"{np.count_nonzero(band)} of {len(freq)} points")
+
+    os.makedirs(args.out, exist_ok=True)
+
+    # ---- Figure 1: error vs order ----
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.6))
+    o = [row["order"] for row in rows]
+    axes[0].semilogy(o, [row["rel"] * 100 for row in rows], "o-")
+    axes[0].set_xlabel("Number of poles")
+    axes[0].set_ylabel("Relative RMS error [%]")
+    axes[0].set_title("Full-band relative RMS vs order")
+    axes[0].grid(True, alpha=0.3)
+    axes[1].plot(o, [row["med"] for row in rows], "o-", label="median")
+    axes[1].plot(o, [row["p90"] for row in rows], "s--", label="90th percentile")
+    axes[1].plot(o, [row["max"] for row in rows], "^:", label="max")
+    axes[1].set_xlabel("Number of poles")
+    axes[1].set_ylabel("dB error (usable band)")
+    axes[1].set_title("Magnitude error within 20 dB of peak")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    fig.suptitle(f"Delay-aware Vector Fitting: {os.path.basename(args.touchstone)} "
+                 f"({args.sparam})", fontsize=13)
+    fig.tight_layout()
+    f1 = os.path.join(args.out, "vf_error_vs_order.png")
+    fig.savefig(f1, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # ---- Figure 2: measured vs fitted (best order) ----
+    br = best
+    f_ghz = freq / 1e9
+    Hm = br["fit"]
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    axes[0].plot(f_ghz, mag_db, "k-", lw=1.8, label="measured")
+    axes[0].plot(f_ghz, 20*np.log10(np.abs(Hm) + 1e-20), "r--", lw=1.4,
+                 label=f"VF order {br['order']}")
+    axes[0].axhline(np.max(mag_db) - 20, color="gray", ls=":", lw=1,
+                    label="usable-band floor (-20 dB)")
+    axes[0].set_ylabel("|S| [dB]")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    axes[0].set_title(
+        f"{args.sparam}: measured vs fitted (tau = {br['delay']*1e9:.3f} ns, "
+        f"median {br['med']:.2f} dB in band)")
+
+    ph_m = np.unwrap(np.angle(H))
+    ph_f = np.unwrap(np.angle(Hm))
+    axes[1].plot(f_ghz, ph_m, "k-", lw=1.5, label="measured")
+    axes[1].plot(f_ghz, ph_f, "r--", lw=1.2, label="fitted")
+    axes[1].set_xlabel("Frequency [GHz]")
+    axes[1].set_ylabel("Unwrapped phase [rad]")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    fig.tight_layout()
+    f2 = os.path.join(args.out, "vf_fit_vs_measured.png")
+    fig.savefig(f2, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"\nSaved: {f1}\nSaved: {f2}")
+    print("All plotted values are computed from the input file — no synthetic data.")
+
+
+if __name__ == "__main__":
     main()
