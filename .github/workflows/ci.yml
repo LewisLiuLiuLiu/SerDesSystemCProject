@@ -115,8 +115,10 @@ jobs:
           ctest --output-on-failure -j4 2>&1 | tee ctest.log
           rc=${PIPESTATUS[0]}
           if [ $rc -ne 0 ]; then
-            # 把失败测试名转成 annotation（无需登录即可通过 check-runs API 读取，
-            # 便于在无法访问 Actions 日志的环境下定位失败）
+            # 把失败测试名与 gtest 断言上下文转成 annotation（公开 check-runs
+            # API 可匿名读取，便于在无法访问 Actions 日志的环境下定位失败）
             awk '/The following tests FAILED/{flag=1} flag' ctest.log | sed 's/^/::error::/' || true
+            grep -E "\[vref-loop\]|Failure$|Expected:|Actual:|evaluates to|Which is:" ctest.log \
+              | head -40 | sed 's/^/::error::/' || true
           fi
           exit $rc

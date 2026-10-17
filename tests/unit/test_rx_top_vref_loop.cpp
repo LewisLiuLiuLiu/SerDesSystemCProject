@@ -29,6 +29,13 @@ TEST(RxTopVrefLoopTest, VrefAdaptsUpwardWhenConfidenceHigh) {
     ap.dfe.num_taps = 3;
     ap.dfe.initial_taps = {0.0, 0.0, 0.0};
     ap.dfe.stats_period = 8192;      // 统计周期 819.2ns（UI=100ps）
+    // 冻结抽头自适应：本测试只验证 Vref 环路本身。
+    // （默认 mu=0.125 会在几个 UI 内把抽头推到限幅，形成强反馈并污染
+    //   数据判决/置信度统计——跨平台浮点路径下结果不可控，2026-10 修复）
+    ap.dfe.mu_startup = 0.0;
+    ap.dfe.mu_acquire = 0.0;
+    ap.dfe.mu_track = 0.0;
+    ap.dfe.leakage = 0.0;
     ap.vref_adapt.enabled = true;
     ap.vref_adapt.vref_pos = 0.15;
     ap.vref_adapt.vref_neg = -0.15;
@@ -49,6 +56,7 @@ TEST(RxTopVrefLoopTest, VrefAdaptsUpwardWhenConfidenceHigh) {
     // 运行到 1.58us：覆盖首个统计周期（819ns）之后的 ACQUIRE 窗口
     sc_core::sc_start(1500, sc_core::SC_NS);
     double vref1 = tb.dut->get_vref_cmd();
+    std::cout << "[vref-loop] vref0=" << vref0 << " vref1=" << vref1 << std::endl;
 
     EXPECT_GT(vref1, vref0 + 0.002)
         << "closed loop: vref must increase while C (approx 1.0) > target (0.7)";
