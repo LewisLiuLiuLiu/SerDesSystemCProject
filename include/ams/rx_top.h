@@ -80,6 +80,8 @@ public:
 
     double get_cdr_phase() const;
     double get_cdr_integral_state() const;
+    /// 当前 Vref 命令（AdaptionDe → ±Vref 比较器动态门限，V）
+    double get_vref_cmd() const;
 
     const sca_tdf::sca_signal<double>& get_cdr_phase_signal() const {
         return m_sig_cdr_phase;

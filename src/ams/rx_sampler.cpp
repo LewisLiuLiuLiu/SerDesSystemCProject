@@ -90,14 +90,8 @@ void RxSamplerTdf::processing() {
 }
 
 void RxSamplerTdf::validate_parameters() {
-    // Check that hysteresis is less than resolution to avoid decision ambiguity
-    if (m_params.hysteresis >= m_params.resolution) {
-        throw std::invalid_argument(
-            "Hysteresis must be less than resolution to avoid decision ambiguity. "
-            "Current values: hysteresis = " + std::to_string(m_params.hysteresis) + 
-            ", resolution = " + std::to_string(m_params.resolution)
-        );
-    }
+    // 注：hysteresis 已从判决路径移除（2026-10，配置兼容保留），
+    // 不再校验 hysteresis < resolution。
     
     // Validate phase source parameter
     if (m_params.phase_source != "clock" && m_params.phase_source != "phase") {
@@ -109,25 +103,15 @@ void RxSamplerTdf::validate_parameters() {
 }
 
 bool RxSamplerTdf::make_decision(double v_diff, double thr) {
-    bool bit_out;
-    
-    // Check if we're in the fuzzy decision region (around the effective threshold,
-    // not around zero — 2026-10 fix for the ±Vref comparators)
+    // 2026-10 重审：迟滞不参与判决。
+    // 真实数据 slicer 没有刻意的 Schmitt 死区（那是信号检测/静噪比较器的
+    // 需求）；比较器的残余记忆是 mV 级动态失调，归入 offset/噪声建模。
+    // hysteresis 参数保留仅为配置兼容（被忽略）。
+    // 判决 = 门限比较 + 门限周围的亚稳态模糊区。
     if (std::abs(v_diff - thr) < m_params.resolution) {
-        // Fuzzy region: random decision based on Bernoulli distribution
-        bit_out = (m_decision_dist(m_rng) < 0.5) ? false : true;
-    } else {
-        // Deterministic region: hysteresis-based decision
-        if (v_diff > thr + m_params.hysteresis / 2.0) {
-            bit_out = true;
-        } else if (v_diff < thr - m_params.hysteresis / 2.0) {
-            bit_out = false;
-        } else {
-            bit_out = m_prev_bit;  // Hysteresis: maintain previous state
-        }
+        return (m_decision_dist(m_rng) < 0.5) ? false : true;
     }
-    
-    return bit_out;
+    return v_diff > thr;
 }
 
 } // namespace serdes

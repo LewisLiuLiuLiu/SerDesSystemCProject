@@ -27,6 +27,13 @@ node_modules/
 *.ppt
 *.pptx
 slides/
+# 论文生成脚本与结果（仅本地）
+scripts/generate_dvcon_complete.py
+scripts/generate_test_coverage.py
+scripts/plot_fig4_architecture.py
+scripts/benchmark_performance.sh
+scripts/s4p_*.png
+benchmark_results.txt
 
 # AI workflow (local only)
 .kimi-dev/
@@ -44,6 +51,7 @@ Thumbs.db
 *.dat
 *.vcd
 *.wdb
+*_metadata.json
 # 仿真生成的CSV数据文件
 *.csv
 

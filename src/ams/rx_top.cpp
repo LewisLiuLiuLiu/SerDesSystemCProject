@@ -369,4 +369,9 @@ double RxTopModule::get_cdr_integral_state() const
     return m_cdr->get_integral_state();
 }
 
+double RxTopModule::get_vref_cmd() const
+{
+    return m_sig_vref_cmd_de.read();
+}
+
 } // namespace serdes

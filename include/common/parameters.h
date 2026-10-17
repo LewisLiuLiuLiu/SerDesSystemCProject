@@ -298,7 +298,7 @@ struct RxVgaParams {
 
 struct RxSamplerParams {
     double threshold;
-    double hysteresis;
+    double hysteresis;               // DEPRECATED（忽略，2026-10）：数据 slicer 无 Schmitt 迟滞；保留仅为配置兼容
     double sample_delay;
     std::string phase_source;
     double resolution;

@@ -4,8 +4,13 @@
 
 **级别**：AMS 子模块（RX）  
 **类名**：`RxSamplerTdf`  
-**当前版本**：v0.3 (2025-12-07)  
+**当前版本**：v0.4 (2026-10-17)  
 **状态**：生产就绪
+
+> **2026-10 实现修订**：
+> 1. 新增 `vref_threshold_de`（DE 域动态门限）：AdaptionDe.vref_cmd → ±Vref 比较器；`threshold_invert` 用于 −Vref 极性；未驱动（≤0）时保持静态 `threshold`。
+> 2. 模糊判决区修正为 **`|v_diff − thr| < resolution`**（围绕有效门限；旧实现围绕 0，对 ±Vref 比较器是错的）。
+> 3. `hysteresis` 参数**已废弃（忽略）**：真实数据 slicer 没有刻意的 Schmitt 迟滞，残余记忆为 mV 级动态失调（归入 offset/噪声）；参数保留仅为配置兼容。文中"迟滞效应"相关表述为历史设计记录。
 
 ---
 

@@ -220,6 +220,11 @@ void DfeAdaptTdf::processing()
         // State machine update
         update_state_machine();
 
+        // 发布状态机结果（2026-10 修复：此前在 update_state_machine 之前
+        // 发布，DE 侧看到的 state/mu 滞后整整一个统计周期）
+        stat_state.write(m_state);
+        stat_mu.write(m_current_mu);
+
         // Write tap outputs (periodic, not per-UI, to reduce DE event rate)
         write_tap_outputs();
 
@@ -333,8 +338,7 @@ void DfeAdaptTdf::compute_and_output_stats()
     stat_P_neg.write(m_P_neg);
     stat_C.write(m_C);
     stat_Delta.write(m_Delta);
-    stat_state.write(m_state);
-    stat_mu.write(m_current_mu);
+    // stat_state / stat_mu 在状态机更新之后再发布（见 processing Step 10）
     stat_update_count.write(m_update_count);
     vref_current.write(m_current_vref);
 }
