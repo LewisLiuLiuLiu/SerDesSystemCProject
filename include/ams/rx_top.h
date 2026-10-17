@@ -11,6 +11,7 @@
 #include "ams/adaption.h"
 #include "ams/dfe_adapt_tdf.h"
 #include "ams/amplitude_estimator.h"
+#include "ams/data_strobe_latch.h"
 
 namespace serdes {
 
@@ -222,16 +223,6 @@ private:
         void processing() override { out.write(0.0); }
     };
 
-    class SignalPassThrough : public sca_tdf::sca_module {
-    public:
-        sca_tdf::sca_in<double> in;
-        sca_tdf::sca_out<double> out;
-        SignalPassThrough(sc_core::sc_module_name nm)
-            : sca_tdf::sca_module(nm), in("in"), out("out") {}
-        void set_attributes() override { in.set_rate(1); out.set_rate(1); }
-        void processing() override { out.write(in.read()); }
-    };
-
     class SignalSplitter : public sca_tdf::sca_module {
     public:
         sca_tdf::sca_in<double> in;
@@ -259,7 +250,7 @@ private:
     };
 
     ConstClockSource* m_clk_src;
-    SignalPassThrough* m_data_out_tap;
+    DataStrobeLatchTdf* m_data_out_latch;   // 对外 data_out：干净 1/UI 判决流
     SignalSplitter* m_sampler_splitter;
     SignalSplitter3* m_dfe_out_splitter;
 

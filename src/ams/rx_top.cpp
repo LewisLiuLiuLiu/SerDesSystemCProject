@@ -133,7 +133,7 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     // ========================================================================
 
     m_clk_src = new ConstClockSource("clk_src");
-    m_data_out_tap = new SignalPassThrough("data_out_tap");
+    m_data_out_latch = new DataStrobeLatchTdf("data_out_latch");
     m_sampler_splitter = new SignalSplitter("sampler_splitter");
     m_dfe_out_splitter = new SignalSplitter3("dfe_out_splitter");
 
@@ -232,9 +232,11 @@ RxTopModule::RxTopModule(sc_core::sc_module_name nm,
     m_vref_pos_sampler->data_out_de(m_sig_dummy_data_out_de_pos);
     m_vref_neg_sampler->data_out_de(m_sig_dummy_data_out_de_neg);
 
-    // External data_out
-    m_data_out_tap->in(m_sig_sampler_out);
-    m_data_out_tap->out(data_out);
+    // External data_out：经 data 频闪锁存，输出干净的 1/UI 数据判决流
+    // （主采样器原始流为 edge+data 混合流，含边沿伪比特）
+    m_data_out_latch->in(m_sig_sampler_out);
+    m_data_out_latch->data_strobe(m_sig_data_trigger);
+    m_data_out_latch->out(data_out);
 
     // ========================================================================
     // Connect DfeAdaptTdf inputs
@@ -354,7 +356,7 @@ RxTopModule::~RxTopModule()
     delete m_amp_est;
     delete m_adaption;
     delete m_clk_src;
-    delete m_data_out_tap;
+    delete m_data_out_latch;
     delete m_sampler_splitter;
     delete m_dfe_out_splitter;
 }

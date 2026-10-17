@@ -311,6 +311,7 @@ set(RX_TOP_TESTS
     rx_top_dfe_dual                 # 双DFE测试
     rx_top_cdr_loop                 # CDR闭环测试
     rx_top_vref_loop                # Vref 闭环集成测试（批次3）
+    data_strobe_latch               # 对外 data_out 干净 1/UI 判决流
     rx_top_integration              # 全链路集成测试
 )
 
