@@ -157,6 +157,7 @@ class VectorFitting:
         self.d = 0.0
         self.e = 0.0
         self.delay = 0.0
+        self.force_e_zero = False
 
         # Normalization
         self._s_scale = 1.0
@@ -566,7 +567,8 @@ class VectorFitting:
 
     def fit(self, s: np.ndarray, H: np.ndarray,
             weight: Optional[np.ndarray] = None,
-            extract_delay: bool = True) -> Dict:
+            extract_delay: bool = True,
+            force_e_zero: bool = False) -> Dict:
         """
         Fit frequency response data using Vector Fitting.
 
@@ -577,6 +579,9 @@ class VectorFitting:
             extract_delay: Estimate and de-embed a pure transport delay before
                 fitting (recommended for real channels; 2026-10). The delay is
                 returned as result['delay'] and re-applied when evaluating.
+            force_e_zero: Constrain the s-proportional e term to zero.
+                Physically required for S-parameters (|S(inf)| is finite) and
+                makes the discrete realization well-posed.
 
         Returns:
             Dictionary with poles, residues, d, e, num, den, delay, order and
@@ -641,6 +646,7 @@ class VectorFitting:
 
         # Final residue identification (to be implemented)
         # For now, use simple least squares
+        self.force_e_zero = force_e_zero
         self.residues, self.d, self.e = self._solve_residues(s, H[0, :])
 
         result = {
@@ -710,7 +716,8 @@ class VectorFitting:
         # Build system matrix with REAL basis functions (vectfit3.m style)
         # For real poles: 1/(s-p)
         # For complex pairs: 1/(s-p)+1/(s-p*) and j/(s-p)-j/(s-p*)
-        A = np.zeros((Ns, N + 2), dtype=complex)
+        n_par = N + (1 if self.force_e_zero else 2)
+        A = np.zeros((Ns, n_par), dtype=complex)
 
         for m in range(N):
             if cindex[m] == 0:  # Real pole
@@ -724,7 +731,8 @@ class VectorFitting:
 
         # Add d and e terms
         A[:, N] = 1.0      # d term
-        A[:, N + 1] = s    # e term (proportional)
+        if not self.force_e_zero:
+            A[:, N + 1] = s    # e term (proportional)
 
         # Stack real and imaginary parts
         A_real = np.vstack([A.real, A.imag])
@@ -763,7 +771,7 @@ class VectorFitting:
                 residues[m + 1] = r1 - 1j * r2  # Conjugate
 
         d = x[N]
-        e = x[N + 1]
+        e = 0.0 if self.force_e_zero else x[N + 1]
 
         return residues, d, e
 
