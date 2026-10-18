@@ -278,6 +278,7 @@ set(CHANNEL_SPARAM_TESTS
     channel_sparam              # 原有基础测试
     channel_sparam_config       # 配置加载测试
     channel_sparam_processing   # 信号处理测试
+    channel_state_space_delay   # state-space 传输延迟应用回归（2026-10）
 )
 
 create_test_executables("${CHANNEL_SPARAM_TESTS}")
