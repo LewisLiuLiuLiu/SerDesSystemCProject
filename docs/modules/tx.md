@@ -262,11 +262,11 @@ y[n] = Σ c[k] × x[n-k]
 - This behavioral model simplifies to single-input single-output
 - Channel index specified through `lane_sel` parameter
 
-#### 3.3.3 Delay and Jitter Modeling
+#### 3.3.3 Delay and Jitter Modeling (Reserved)
 
-- **Propagation Delay**: 10-50ps (configurable)
-- **Jitter Injection**: Supports DCD (Duty Cycle Distortion) and RJ (Random Jitter)
-- **Application Scenario**: Testing CDR jitter tolerance capability
+- **Propagation Delay**: 10-50ps planned, **not implemented**
+- **Jitter Injection**: DCD/RJ planned, **not implemented**
+- **Application Scenario**: Future CDR jitter-tolerance testing
 
 ### 3.4 Driver Output Stage Design
 
@@ -309,20 +309,24 @@ H(s) = Gdc × ∏(1 + s/ωp_j)^(-1)
 
 #### 3.4.3 Nonlinear Saturation
 
-**Soft Saturation (Recommended)**:
+**Soft Saturation (Recommended, 2026-10 semantics)**:
 
-```
-Vout = Vswing × tanh(Vin / Vlin)
+```cpp
+double vdf  = Z0 / (output_impedance + Z0);   // impedance division factor
+double vsat = (vswing / 2.0) / vdf;           // internal clamp before division
+Vout = vsat * tanh(Vin / vsat);               // unit gain, small-signal slope = 1
 ```
 
 - Continuous derivative, low harmonic distortion
-- Vlin parameter determines linear region range
-- Recommended: `Vlin = Vswing / 1.2`
+- `vswing` is the **channel-side** differential Vpp (after impedance division); the internal clamp is scaled by `1/vdf`
+- `vlin` is deprecated and ignored; extra small-signal gain comes only from `dc_gain`
 
 **Hard Saturation**:
 
-```
-Vout = clamp(Vin, -Vswing/2, +Vswing/2)
+```cpp
+double vdf  = Z0 / (output_impedance + Z0);
+double vsat = (vswing / 2.0) / vdf;
+Vout = std::max(-vsat, std::min(vsat, Vin));
 ```
 
 - Simple calculation but discontinuous derivative

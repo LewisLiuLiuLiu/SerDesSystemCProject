@@ -7,6 +7,8 @@
 **Status**: Production Ready
 
 > **Semantics revision note (2026-10)**: internal wiring has changed materially since the v1.1 tables were written. `data_out` is now produced by a `DataStrobeLatchTdf` clocked by the CDR `data_trigger`, so it is a **clean 1/UI decision stream** (not the edge/data mixed sampler stream). The Sampler is trigger-driven (`sampling_trigger`), uses `vref_threshold_de` as an optional dynamic threshold, and ignores `hysteresis`. DFE adaptation (taps) moved to `DfeAdaptTdf`; AdaptionDe drives AGC/CDR-PI/`vref_cmd` only (no `dfe_taps`, no threshold adaptation). The port tables in 2.2 and the sub-module table in 2.3.2 are synced; the ASCII topology diagrams, section 2.3.4 and the algorithm snippets in 3.5/3.6/7.x are pre-2026-10 historical records.
+>
+> **Legacy DFE (2026-10)**: `RxDfeTdf` (`include/ams/rx_dfe.h`, `src/ams/rx_dfe.cpp`) is a **legacy standalone module**: scalar `in`/`out` at `set_rate(1)`, constructor `RxDfeTdf(name, const RxDfeParams&)`, and a per-sample `y = x − Σ taps[i]·history[i]` that uses its own previous outputs as history. It is **not instantiated in `RxTopModule`**; the current chain uses `RxDfeSummerTdf` (`include/ams/rx_dfe_summer.h`; differential `in_p/in_n`, scalar `data_in` + `data_strobe`, `RxDfeSummerParams`) plus `DfeAdaptTdf`. `RxDfeParams` (`rx.dfe`) is kept only for legacy tests and backward configuration compatibility; `RxParams` now contains `dfe_summer`.
 
 ---
 
@@ -260,13 +262,6 @@ The Adaption module serves as the DE domain adaptive control hub, interacting wi
 #### 2.3.1 Overall Parameter Structure
 
 ```cpp
-struct RxParams {
-    RxCtleParams ctle;          // CTLE parameters
-    RxVgaParams vga;            // VGA parameters
-    RxSamplerParams sampler;    // Sampler parameters
-    RxDfeParams dfe;            // DFE parameters
-};
-
 // CDR parameters defined independently
 struct CdrParams {
     CdrPiParams pi;             // PI controller parameters
@@ -274,6 +269,17 @@ struct CdrParams {
     double ui;                  // Unit interval (s)
     bool debug_enable;          // Debug output enable
 };
+
+struct RxParams {
+    RxCtleParams ctle;              // CTLE parameters
+    RxVgaParams vga;                // VGA parameters
+    RxSamplerParams sampler;        // Sampler parameters
+    RxDfeSummerParams dfe_summer;   // Current differential DFE summer
+    CdrParams cdr;                  // CDR parameters (closed-loop)
+};
+
+// Legacy standalone RxDfeTdf uses RxDfeParams {taps, update, mu};
+// it is not part of RxParams and is not instantiated by RxTopModule.
 ```
 
 #### 2.3.2 Sub-module Parameter Summary
@@ -282,7 +288,7 @@ struct CdrParams {
 |--------|---------|---------|----------|
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | Single zero single pole | High-frequency boost, bandwidth limiting |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | Variable gain | AGC dynamic adjustment |
-| DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3 taps | Post-cursor ISI cancellation |
+| DFE Summer | `tap_coeffs=[-0.05,-0.02,0.01]`, `vtap=0.05`, `map_mode="pm1"` | 3 taps | Post-cursor ISI cancellation (current chain). Legacy `RxDfeParams` `taps/mu` apply only to `RxDfeTdf` |
 | Sampler | `resolution=0.02`, `threshold=0.0`, `vref_threshold_de` (dynamic) | Fuzzy decision | Metastability modeling, ±Vref comparators |
 | CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI controller | Phase tracking (2 triggers/UI + data_trigger) |
 | Adaption | `agc.target=0.4`, `vref_adapt`, `safety` | Multi-rate scheduling | AGC, CDR PI, Vref command (DFE taps in DfeAdaptTdf) |
@@ -330,10 +336,13 @@ struct CdrParams {
       "dc_gain": 2.0,
       "vcm_out": 0.6
     },
-    "dfe": {
-      "taps": [-0.05, -0.02, 0.01],
-      "update": "sign-lms",
-      "mu": 1e-4
+    "dfe_summer": {
+      "tap_coeffs": [-0.05, -0.02, 0.01],
+      "ui": 1e-10,
+      "vcm_out": 0.0,
+      "vtap": 0.05,
+      "map_mode": "pm1",
+      "enable": true
     },
     "sampler": {
       "threshold": 0.0,
@@ -443,6 +452,8 @@ Where:
 - System total bandwidth determined by lowest pole frequency
 
 ### 3.3 DFE Feedback Loop Design
+
+> **2026-10 scope note**: this section describes the generic DFE feedback concept. The legacy `RxDfeTdf` uses its own previous **output samples** as history; the current `RxDfeSummerTdf` uses **decision bits** (`data_in`) shifted by `data_strobe`.
 
 #### 3.3.1 Historical Decision Maintenance
 
@@ -1247,8 +1258,12 @@ void AdaptionDe::slow_path_process() {
 | CTLE Implementation | `/src/ams/rx_ctle.cpp` | RxCtleTdf class implementation |
 | VGA Header | `/include/ams/rx_vga.h` | RxVgaTdf class declaration |
 | VGA Implementation | `/src/ams/rx_vga.cpp` | RxVgaTdf class implementation |
-| DFE Header | `/include/ams/rx_dfe.h` | RxDfeTdf class declaration |
-| DFE Implementation | `/src/ams/rx_dfe.cpp` | RxDfeTdf class implementation |
+| DFE Summer Header | `/include/ams/rx_dfe_summer.h` | RxDfeSummerTdf class declaration (current chain) |
+| DFE Summer Implementation | `/src/ams/rx_dfe_summer.cpp` | RxDfeSummerTdf class implementation |
+| DFE Adapt Header | `/include/ams/dfe_adapt_tdf.h` | DfeAdaptTdf class declaration (tap adaptation) |
+| DFE Adapt Implementation | `/src/ams/dfe_adapt_tdf.cpp` | DfeAdaptTdf class implementation |
+| Legacy DFE Header | `/include/ams/rx_dfe.h` | RxDfeTdf class declaration (legacy, not in RxTopModule) |
+| Legacy DFE Implementation | `/src/ams/rx_dfe.cpp` | RxDfeTdf class implementation (legacy) |
 | Sampler Header | `/include/ams/rx_sampler.h` | RxSamplerTdf class declaration |
 | Sampler Implementation | `/src/ams/rx_sampler.cpp` | RxSamplerTdf class implementation |
 | CDR Header | `/include/ams/rx_cdr.h` | RxCdrTdf class declaration |

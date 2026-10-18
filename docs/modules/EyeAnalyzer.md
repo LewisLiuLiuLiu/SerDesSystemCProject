@@ -9,6 +9,8 @@
 **Current Version**: v2.0.0 (2026-03-16)  
 **Status**: Production Ready
 
+> **2026-10 analysis-chain note**: the Python `EyeAnalyzer` API still requires an explicit `ui`, but the project scripts (`scripts/plot_tx_eye.py`, `scripts/plot_dfe_eye.py`, `scripts/analyze_serdes_link.py`) now resolve UI from the simulation metadata `<prefix>_metadata.json` (`ui_ps`) written by the testbenches. `plot_tx_eye.py` and `plot_dfe_eye.py` also accept a `--ui-ps` override. The 100 ps / 10 Gbps values in the examples below are illustrations and the fallback only when metadata is missing; they are not a fixed assumption of the analyzer.
+
 ---
 
 ## 1. Overview
@@ -63,7 +65,7 @@ As a Python analysis component, EyeAnalyzer's "ports" correspond to function inp
 | `amp_bins` | integer | 128 | Eye diagram vertical direction (amplitude axis) resolution, i.e., the number of histogram bins within the amplitude range |
 | `measure_length` | double | 1e-4 | Statistical duration (seconds), used to truncate the latter segment of waveform data for eye diagram analysis to ensure data stability |
 | `target_ber` | double | 1e-12 | Target bit error rate, used to calculate TJ@BER (Total Jitter at Target BER) |
-| `ui` | double | **Required** | Unit interval (seconds), determined by link rate (e.g., 10Gbps corresponds to 2.5e-11s) |
+| `ui` | double | **Required** | Unit interval (seconds). In the project scripts it is read from `<prefix>_metadata.json` (`ui_ps`) written by the testbench; the API itself requires the caller to supply it (e.g. 10 Gbps → 2.5e-11 s) |
 | `sampling` | string | 'phase-lock' | Sampling phase estimation strategy: 'peak' (peak sampling), 'zero-cross' (zero-crossing sampling), 'phase-lock' (phase lock) |
 
 #### Advanced Parameters
@@ -1720,7 +1722,7 @@ pip install -r requirements.txt
 
 ### 8.3 Configuration Examples
 
-#### 8.3.1 Basic Configuration (10Gbps NRZ Signal)
+#### 8.3.1 Basic Configuration (10Gbps NRZ example; UI is normally read from metadata)
 
 ```json
 {

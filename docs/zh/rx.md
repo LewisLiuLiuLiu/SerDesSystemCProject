@@ -7,6 +7,8 @@
 **状态**：生产就绪
 
 > **2026-10 语义修订注记**：v1.1 表格编写后内部接线已有实质变化。`data_out` 现由 `DataStrobeLatchTdf` 以 CDR `data_trigger` 锁存，输出**干净 1/UI 判决流**（不再是边沿/数据混合的采样器原始流）。Sampler 为触发驱动（`sampling_trigger`），可用 `vref_threshold_de` 动态门限，`hysteresis` 被忽略。DFE 抽头自适应已迁至 `DfeAdaptTdf`；AdaptionDe 只负责 AGC / CDR-PI / `vref_cmd`（无 `dfe_taps`、无阈值自适应）。2.2 端口表与 2.3.2 子模块表已同步；ASCII 拓扑图、2.3.4 与 3.5/3.6/7.x 的算法片段为 2026-10 之前的历史记录。
+>
+> **Legacy DFE（2026-10）**：`RxDfeTdf`（`include/ams/rx_dfe.h`、`src/ams/rx_dfe.cpp`）是**旧版独立模块**：标量 `in`/`out`、`set_rate(1)`、构造签名 `RxDfeTdf(name, const RxDfeParams&)`，逐采样执行 `y = x − Σ taps[i]·history[i]`，历史取自它自己的既往输出。`RxTopModule` **不再实例化**它；当前链路使用 `RxDfeSummerTdf`（`include/ams/rx_dfe_summer.h`；差分 `in_p/in_n`、标量 `data_in` + `data_strobe`、`RxDfeSummerParams`）加 `DfeAdaptTdf`。`RxDfeParams`（`rx.dfe`）仅为旧测试与配置向后兼容保留；`RxParams` 现在包含 `dfe_summer`。
 
 ---
 
@@ -259,13 +261,6 @@ Adaption模块作为DE域自适应控制中枢，通过DE-TDF桥接机制与TDF�
 #### 2.3.1 总体参数结构
 
 ```cpp
-struct RxParams {
-    RxCtleParams ctle;          // CTLE参数
-    RxVgaParams vga;            // VGA参数
-    RxSamplerParams sampler;    // Sampler参数
-    RxDfeParams dfe;            // DFE参数
-};
-
 // CDR参数独立定义
 struct CdrParams {
     CdrPiParams pi;             // PI控制器参数
@@ -273,6 +268,17 @@ struct CdrParams {
     double ui;                  // 单位间隔 (s)
     bool debug_enable;          // 调试输出使能
 };
+
+struct RxParams {
+    RxCtleParams ctle;              // CTLE参数
+    RxVgaParams vga;                // VGA参数
+    RxSamplerParams sampler;        // Sampler参数
+    RxDfeSummerParams dfe_summer;   // 当前差分 DFE Summer
+    CdrParams cdr;                  // CDR参数（闭环）
+};
+
+// 旧版独立 RxDfeTdf 使用 RxDfeParams {taps, update, mu}；
+// 它不属于 RxParams，也未被 RxTopModule 实例化。
 ```
 
 #### 2.3.2 各子模块参数汇总
@@ -281,7 +287,7 @@ struct CdrParams {
 |--------|---------|---------|----------|
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | 单零点单极点 | 高频提升，带宽限制 |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | 可变增益 | AGC动态调整 |
-| DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3抽头 | 后游标ISI抵消 |
+| DFE Summer | `tap_coeffs=[-0.05,-0.02,0.01]`, `vtap=0.05`, `map_mode="pm1"` | 3抽头 | 后游标ISI抵消（当前链路）。旧版 `RxDfeParams` 的 `taps/mu` 仅适用于 `RxDfeTdf` |
 | Sampler | `resolution=0.02`, `threshold=0.0`, `vref_threshold_de`（动态） | 模糊判决 | 亚稳态建模、±Vref 比较器 |
 | CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI控制器 | 相位跟踪（每 UI 2 触发 + data_trigger） |
 | Adaption | `agc.target=0.4`, `vref_adapt`, `safety` | 多速率调度 | AGC、CDR PI、Vref 命令（DFE 抽头在 DfeAdaptTdf） |
@@ -329,10 +335,13 @@ struct CdrParams {
       "dc_gain": 2.0,
       "vcm_out": 0.6
     },
-    "dfe": {
-      "taps": [-0.05, -0.02, 0.01],
-      "update": "sign-lms",
-      "mu": 1e-4
+    "dfe_summer": {
+      "tap_coeffs": [-0.05, -0.02, 0.01],
+      "ui": 1e-10,
+      "vcm_out": 0.0,
+      "vtap": 0.05,
+      "map_mode": "pm1",
+      "enable": true
     },
     "sampler": {
       "threshold": 0.0,
@@ -442,6 +451,8 @@ G_total = V_sampler_min / V_channel_out
 - 系统总带宽由最低极点频率决定
 
 ### 3.3 DFE反馈环路设计
+
+> **2026-10 范围注记**：本节描述通用 DFE 反馈概念。旧版 `RxDfeTdf` 用自身既往**输出采样**作为历史；当前 `RxDfeSummerTdf` 使用**判决比特**（`data_in`），由 `data_strobe` 移位。
 
 #### 3.3.1 历史判决维护
 
@@ -1246,8 +1257,12 @@ void AdaptionDe::slow_path_process() {
 | CTLE实现 | `/src/ams/rx_ctle.cpp` | RxCtleTdf类实现 |
 | VGA头文件 | `/include/ams/rx_vga.h` | RxVgaTdf类声明 |
 | VGA实现 | `/src/ams/rx_vga.cpp` | RxVgaTdf类实现 |
-| DFE头文件 | `/include/ams/rx_dfe.h` | RxDfeTdf类声明 |
-| DFE实现 | `/src/ams/rx_dfe.cpp` | RxDfeTdf类实现 |
+| DFE Summer头文件 | `/include/ams/rx_dfe_summer.h` | RxDfeSummerTdf类声明（当前链路） |
+| DFE Summer实现 | `/src/ams/rx_dfe_summer.cpp` | RxDfeSummerTdf类实现 |
+| DFE Adapt头文件 | `/include/ams/dfe_adapt_tdf.h` | DfeAdaptTdf类声明（抽头自适应） |
+| DFE Adapt实现 | `/src/ams/dfe_adapt_tdf.cpp` | DfeAdaptTdf类实现 |
+| 旧版DFE头文件 | `/include/ams/rx_dfe.h` | RxDfeTdf类声明（legacy，未在RxTopModule中使用） |
+| 旧版DFE实现 | `/src/ams/rx_dfe.cpp` | RxDfeTdf类实现（legacy） |
 | Sampler头文件 | `/include/ams/rx_sampler.h` | RxSamplerTdf类声明 |
 | Sampler实现 | `/src/ams/rx_sampler.cpp` | RxSamplerTdf类实现 |
 | CDR头文件 | `/include/ams/rx_cdr.h` | RxCdrTdf类声明 |

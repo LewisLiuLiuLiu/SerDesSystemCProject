@@ -7,6 +7,8 @@
 **Current Version**: v0.1 (2026-01-13)  
 **Status**: Under Development
 
+> **2026-10 semantics revision**: `TxFfeTdf` runs at TDF rate 1 (one sample per timestep), **not** one symbol per UI. `taps` are per-sample FIR coefficients: UI-spaced taps must be expanded with zeros at `Fs / Rbit` spacing (e.g. 5 UI taps at 50 samples/UI become 201 taps with nonzero entries every 50). The output is the raw convolution `y[n] = Σ c[k]·x[n−k]` with **no built-in normalization, gain or saturation**; swing is set by the tap values (and the downstream Driver `dc_gain`/`vswing`). Default `taps = {0.2, 0.6, 0.2}`. Sections below that describe per-UI tap spacing, `set_rate(symbol_rate)` or automatic output normalization are pre-2026-10 design records.
+
 ---
 
 ## 1. Overview
@@ -40,14 +42,14 @@ y[n] = Σ c[k] × x[n-k]
 ```
 
 Where:
-- `y[n]`: The nth output symbol
-- `x[n-k]`: The input symbol delayed by k symbol intervals (UI)
+- `y[n]`: The nth output **sample** (not symbol; the module runs at TDF sample rate)
+- `x[n-k]`: The input sample delayed by k TDF samples. If `taps` is UI-spaced, a nonzero entry at index k corresponds to k·(1/Fs) seconds
 - `c[k]`: The weighting coefficient of the kth tap
-- `N`: The total number of taps
+- `N`: The total number of tap entries (including zeros used for UI spacing)
 
 The tap coefficients follow these principles:
 
-- **Normalization Constraint**: To ensure the output signal's average power is consistent with the input, it is usually required that `Σ|c[k]| ≈ 1`.
+- **Normalization Constraint (design-time)**: To keep the output signal's average power consistent with the input, tap coefficients are usually scaled so that `Σ|c[k]| ≈ 1`. This is a coefficient-design guideline; `TxFfeTdf` does not enforce or apply it at runtime.
 - **Main Tap Maximization Principle**: The main tap (typically c[1] or c[2]) has the largest magnitude, ensuring that the main signal energy is concentrated on the current symbol.
 - **Symmetry Consideration**: For symmetric channel impulse responses, FFE tap coefficients may also exhibit symmetric or quasi-symmetric distributions, but in practical applications, post-tap weights are usually greater than pre-taps (because post-cursor ISI is more severe in causal systems).
 
@@ -75,13 +77,13 @@ FFE tap coefficient design can be obtained through the following methods:
 
 - **FIR Filter Structure**: Adopts an N-tap finite impulse response filter, supporting flexible configuration of the number of taps (typically 3-7 taps) and weighting coefficients to meet compensation requirements for different channel losses.
 
-- **Symbol Rate Synchronization**: FFE operates in the Symbol Rate clock domain, processing one symbol per UI. The tap delay line interval is precisely equal to one symbol period, ensuring time alignment accuracy for ISI compensation.
+- **Sample-Rate Processing (2026-10)**: FFE processes one sample per TDF timestep (`set_rate(1)`); each tap delays by one sample, not one UI. UI-spaced equalization is obtained by zero-padding the tap vector at `Fs / Rbit` spacing (see the revision note above).
 
 - **Configurable Tap Coefficients**: Tap weighting coefficients are flexibly set through configuration parameters, supporting pre-emphasis, de-emphasis, mixed mode, and other equalization strategies that can be optimized according to channel characteristics and system requirements.
 
-- **Normalized Output Swing**: Through normalization of tap coefficients or explicit gain adjustment, ensures that the FFE output signal swing is within a reasonable range, avoiding saturation in the downstream Driver or signal-to-noise ratio degradation.
+- **Output Swing Set by Taps (no internal normalization)**: The implementation writes the raw FIR sum; it does not normalize by `Σ|c[k]|` or clip the output. Output swing follows the configured tap values, and final channel-side swing is set by the Driver `dc_gain`/`vswing`.
 
-- **Low Latency Characteristic**: FFE only introduces fixed tap delays (typically half the number of taps in UI), offering lower latency and simpler timing constraints compared to receiver-side DFE (which requires decision feedback).
+- **Low Latency Characteristic**: FFE introduces `N−1` samples of group delay (with UI-spaced taps, `(N−1)·UI`), offering lower latency and simpler timing constraints than a receiver-side DFE (which requires decision feedback).
 
 - **Channel Variation Adaptation**: Tap coefficients can be dynamically updated at runtime through an external control interface (such as an Adaption module), supporting adaptive equalization and channel tracking functions to adapt to channel characteristic changes caused by temperature drift, aging, etc.
 
@@ -150,21 +152,21 @@ Tap coefficients are the core configuration parameters of the FFE module, defini
 
 | Parameter | Type | Default | Description |
 |------|------|--------|------|
-| `taps` | vector&lt;double&gt; | [0.2, 0.6, 0.2] | FFE tap weighting coefficient array, indexed from 0 |
+| `taps` | vector&lt;double&gt; | [0.2, 0.6, 0.2] | Per-sample FIR coefficient array, indexed from 0. UI-spaced taps require zero padding (see 2026-10 note) |
 
-**Tap Meanings**:
-- `taps[0], taps[1], ..., taps[N-2]`: Pre-taps, compensating for pre-cursor ISI
+**Tap Meanings** (for UI-spaced sparse vectors):
+- `taps[0], taps[spacing], ...`: Pre-taps, compensating for pre-cursor ISI
 - `taps[main tap index]`: Main tap, carrying the main energy of the current symbol, typically the maximum value
-- `taps[main tap+1], ..., taps[N-1]`: Post-taps, compensating for post-cursor ISI
+- `taps[main tap+spacing], ...`: Post-taps, compensating for post-cursor ISI
 
-**Typical Configurations**:
+**Typical Configurations** (assuming one sample per UI; at oversampling, insert `Fs/Rbit − 1` zeros between taps):
 - **3-tap**: `[c0, c1, c2]`, where c1 is the main tap
 - **5-tap**: `[c0, c1, c2, c3, c4]`, where c2 is the main tap
 - **7-tap**: `[c0, c1, c2, c3, c4, c5, c6]`, where c3 is the main tap
 
 #### 2.2.3 Tap Coefficient Constraints and Validation
 
-To ensure the rationality and physical realizability of the FFE output signal, tap coefficients must satisfy the following constraints:
+To ensure the rationality and physical realizability of the FFE output signal, tap coefficients are usually designed to satisfy the following constraints. These are **design guidelines**; the module does not validate or normalize them at runtime.
 
 ##### Normalization Constraint
 
@@ -356,20 +358,16 @@ public:
     // Single-ended input/output ports
     sca_tdf::sca_in<double> in;
     sca_tdf::sca_out<double> out;
-    
-    // Constructor
+
     TxFfeTdf(sc_core::sc_module_name name, const TxFfeParams& params);
-    
+
+    void set_attributes();
+    void processing();
+
 private:
     TxFfeParams m_params;
-    
-    // SystemC-AMS callback functions
-    void set_attributes() override;
-    void initialize() override;
-    void processing() override;
-    
-    // Internal state: delay line buffer
-    std::vector<double> m_delay_line;
+    std::vector<double> m_buffer;   // circular buffer, one entry per tap
+    size_t m_buffer_ptr;            // write pointer
 };
 ```
 
@@ -381,12 +379,13 @@ TxFfeTdf::TxFfeTdf(sc_core::sc_module_name name, const TxFfeParams& params)
     , in("in")
     , out("out")
     , m_params(params)
-    , m_delay_line(params.taps.size(), 0.0)  // Initialize delay line to 0
+    , m_buffer_ptr(0)
 {
-    // Parameter validation
-    if (m_params.taps.empty()) {
-        SC_REPORT_ERROR("TxFfeTdf", "FFE taps cannot be empty");
+    size_t num_taps = params.taps.size();
+    if (num_taps == 0) {
+        num_taps = 1;               // fallback; empty taps are unsupported
     }
+    m_buffer.resize(num_taps, 0.0);
 }
 ```
 
@@ -422,16 +421,16 @@ tx_driver.in(sig_ffe_out);
 
 ### 3.1 Signal Processing Flow
 
-The FFE module's `processing()` method executes FIR filter calculations once per symbol period (UI), implementing signal pre-distortion.
+The FFE module's `processing()` method executes once per TDF timestep (one sample), not once per symbol period (UI). With UI-spaced sparse taps, the convolution still runs at sample rate.
 
 **Processing Pipeline**:
 ```
 Input Read → Delay Line Update → FIR Convolution Calculation → Output Write
 ```
 
-**Step 1 - Input Read**: Read the current symbol value from the single-ended input port `in`. The input signal typically comes from the WaveGen module with a swing of ±1V.
+**Step 1 - Input Read**: Read the current sample from the single-ended input port `in`. The input signal typically comes from the WaveGen module with a swing of ±1V.
 
-**Step 2 - Delay Line Update**: Store the current input symbol in the tap delay line (`std::vector<double> m_delay_line`), using a FIFO structure where new data enters at index 0 and old data shifts backward.
+**Step 2 - Buffer Update**: Store the current sample in the circular buffer `m_buffer` at `m_buffer_ptr`; the buffer holds the last `taps.size()` samples and wraps by index, with no FIFO shifting.
 
 **Step 3 - FIR Convolution**: Perform weighted summation based on the configured tap coefficients and delay line data:
 ```
@@ -452,21 +451,21 @@ y[n] = c[0]×x[n] + c[1]×x[n-1] + ... + c[N-1]×x[n-N+1]
 
 **Frequency response (Discrete-Time Fourier Transform)**:
 ```
-H(f) = Σ c[k] × e^(-j2πfkT)  (k=0 to N-1)
+H(f) = Σ c[k] × e^(-j2πfkTs)  (k=0 to N-1),  Ts = 1/Fs
 ```
-Where `T` is the symbol period (UI) and `f` is frequency.
+Where `Ts` is the TDF sample period, not the UI. For a UI-spaced sparse tap vector, `c[k]` is nonzero only every `Fs/Rbit` entries, so the response reduces to the familiar UI-spaced form; the example below assumes one sample per UI (`Ts = UI`).
 
 **Typical Configuration Example** (3-tap):
 - De-emphasis mode: `c = [0, 1.0, -0.25]`, frequency response `H(f) = 1 - 0.25×e^(-j4πfT)`, low-frequency gain 0.75 (-2.5dB), Nyquist frequency gain 1.25 (+1.9dB)
 - Balanced mode: `c = [0.15, 0.7, 0.15]`, low-pass characteristic, low-frequency gain 1.0, high-frequency gain 0.4 (-7.96dB)
 
-**Delay Line Management**: Implemented using simple array shifting (tap count typically ≤7, performance overhead is acceptable). Updated once per UI, delay line filled with 0 values during initialization.
+**Delay Line Management**: Implemented as a circular buffer of length `taps.size()` (the header member is `m_buffer`). It is updated once per TDF sample, not once per UI; for example, 5 UI taps at 50 samples/UI require 201 buffer entries.
 
 ### 3.3 Normalization and Saturation Handling
 
-**Normalization Strategy**: Choose whether to normalize the output based on the equalization mode. De-emphasis mode (main tap ≈ 1.0) typically does not normalize; pre-emphasis/balanced mode can use amplitude normalization (dividing by `Σ|c[k]|`) to ensure output peak does not exceed input swing.
+**Normalization Strategy (2026-10)**: None is implemented inside `TxFfeTdf`. `processing()` writes the raw weighted sum `y = Σ taps[i]·x[n−i]`; any amplitude normalization must be folded into the tap values themselves (as the project configuration generators do) or handled by the Driver.
 
-**Saturation Limiting**: Prevent output from exceeding the input range of the downstream Driver through hard clipping or soft saturation (tanh function). Typical saturation levels are set to 80-90% of the Driver input range.
+**Saturation Limiting**: Not implemented in `TxFfeTdf`. Output clipping/saturation is only provided downstream by the Driver (`sat_mode`), so the FFE output can exceed the Driver input range if taps are not scaled appropriately.
 
 ---
 
@@ -894,27 +893,29 @@ Number of sample points = Simulation duration / UI (e.g., 50ns / 10ps = 5000 poi
 - Single-ended behavioral model verification results can be directly mapped to differential hardware (differential signals can be viewed as a linear combination of two single-ended signals)
 - If evaluation of differential-specific non-ideal effects (such as common-mode noise, mismatch) is needed, it can be extended to a differential architecture in subsequent design stages
 
-### 6.2 Key Constraints of Symbol Rate Processing
+### 6.2 Key Constraints of Sample-Rate Processing (2026-10)
 
-**Design Characteristic**: FFE operates in the Symbol Rate clock domain, processing once per UI.
+**Design Characteristic**: FFE runs at TDF rate 1: one sample per timestep. It does not run once per UI.
 
 **Timing Constraints**:
-- The time interval of the tap delay line must precisely equal one symbol period (UI)
-- SystemC-AMS sampling rate setting: `set_rate(symbol_rate)`
-- Time step errors accumulate and cause ISI compensation misalignment; recommended time resolution ≤ UI/1000
+- Each tap delays the signal by exactly one TDF sample; a UI delay corresponds to `Fs / Rbit` samples
+- SystemC-AMS sampling rate setting: `set_rate(1)` (not `set_rate(symbol_rate)`)
+- To realize UI-spaced taps, zero-pad the coefficient vector so that nonzero taps are `Fs / Rbit` samples apart
 
 **Clock Domain Relationships with Other Modules**:
-- **Upstream WaveGen**: Must be synchronized to the same symbol rate to ensure one symbol output per UI
-- **Downstream Driver**: Can operate at higher sampling rates (oversampling mode), bridged through an interpolator
-- **Cross-clock domain risk**: If WaveGen and FFE sampling rates do not match, it causes symbol misalignment or repeated sampling
+- **Upstream WaveGen**: Produces one sample per TDF timestep at the global `Fs`
+- **Downstream Mux/Driver**: Operate at the same rate (`rate=1`); no interpolator is inserted in the TX chain
+- **Cross-clock domain risk**: If `Fs` or `UI` is inconsistent with the configured tap spacing, the effective equalization shifts in time
 
 **Debug Suggestions**:
-- Use trace files to verify that input/output symbol timestamps are strictly aligned
-- Check that delay line buffer size matches tap count: `m_delay_line.size() == m_params.taps.size()`
+- Use trace files to verify that input/output sample timestamps are strictly aligned
+- Check that the circular buffer size matches the tap count: `m_buffer.size() == m_params.taps.size()` (for non-empty taps)
 
 ### 6.3 Normalization Strategy Selection
 
 **Core Issue**: How to ensure FFE output signal swing is within a reasonable range to avoid saturation or SNR degradation in the downstream Driver?
+
+> **Current implementation (2026-10)**: `TxFfeTdf` uses **Strategy 3** below (raw FIR output, no internal normalization); overall gain is set by the tap values together with the Driver `dc_gain`. Strategies 1/2 are design-time options that must be baked into the configured `taps`.
 
 **Three Normalization Strategies**:
 
@@ -1031,6 +1032,8 @@ Total ISI compensation requirements in the SerDes link should be reasonably allo
 3. Connect Adaption module (DE domain, implementing LMS algorithm) with FFE control port
 
 ### 6.7 Parameter Validation and Boundary Condition Handling
+
+> **2026-10 note**: the rules below are recommended wrapper/config validation, **not implemented inside `TxFfeTdf`**. The constructor only falls back to a 1-entry buffer for an empty tap list, while `processing()` loops over `taps.size()`; therefore an empty `taps` vector is unsupported and must be rejected by the caller/config loader.
 
 **Core Validation Rules**:
 

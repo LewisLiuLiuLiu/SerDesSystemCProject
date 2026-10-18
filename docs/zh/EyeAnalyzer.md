@@ -7,6 +7,8 @@
 **当前版本**：v2.0.0 (2026-01-23)  
 **状态**：生产就绪
 
+> **2026-10 分析链路注记**：Python `EyeAnalyzer` API 仍要求显式传入 `ui`，但项目脚本（`scripts/plot_tx_eye.py`、`scripts/plot_dfe_eye.py`、`scripts/analyze_serdes_link.py`）已改为从测试平台写出的仿真元数据 `<prefix>_metadata.json`（`ui_ps`）读取 UI；`plot_tx_eye.py` 与 `plot_dfe_eye.py` 还支持 `--ui-ps` 覆盖。下文示例中的 100 ps / 10 Gbps 仅为示例，也是元数据缺失时的回退值，不是分析器的固定假设。
+
 ---
 
 ## 1. 概述
@@ -61,7 +63,7 @@ EyeAnalyzer作为Python分析组件，其"端口"对应于函数输入/输出接
 | `amp_bins` | integer | 128 | 眼图垂直方向（幅度轴）分辨率，即幅度范围的直方图bin数量 |
 | `measure_length` | double | 1e-4 | 统计时长（秒），用于截取波形数据的后段进行眼图分析，确保数据稳定性 |
 | `target_ber` | double | 1e-12 | 目标误码率，用于计算TJ@BER（Total Jitter at Target BER） |
-| `ui` | double | **必须** | 单位间隔（秒），由链路速率决定（如10Gbps对应2.5e-11s） |
+| `ui` | double | **必须** | 单位间隔（秒）。项目脚本从测试平台写出的 `<prefix>_metadata.json`（`ui_ps`）读取；API 本身要求调用者传入（如 10Gbps 对应 2.5e-11s） |
 | `sampling` | string | 'phase-lock' | 采样相位估计策略：'peak'（峰值采样）、'zero-cross'（过零采样）、'phase-lock'（相位锁定） |
 
 #### 高级参数
@@ -2062,7 +2064,7 @@ pip install -r requirements.txt
 
 ### 8.3 配置示例
 
-#### 8.3.1 基础配置（10Gbps NRZ信号）
+#### 8.3.1 基础配置（10Gbps NRZ 示例；实际 UI 通常从元数据读取）
 
 ```json
 {

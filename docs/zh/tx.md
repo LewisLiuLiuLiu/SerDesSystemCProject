@@ -6,6 +6,8 @@
 **当前版本**：v1.0 (2026-01-27)  
 **状态**：生产就绪
 
+> **2026-10 语义修订注记**：Driver 的 `vswing` 现为**信道侧**差分 Vpp（经阻抗分压后；内部限幅电平按 `1/vdf` 放大），soft saturation 为单位增益 `Vsat·tanh(x/Vsat)`，`vlin` 已废弃（被忽略，仅为配置兼容保留）。详见 `driver.md`；本文 3.4.3 公式已同步。
+
 ---
 
 ## 1. 概述
@@ -260,11 +262,11 @@ y[n] = Σ c[k] × x[n-k]
 - 本行为模型简化为单输入单输出
 - 通过`lane_sel`参数指定通道索引
 
-#### 3.3.3 延迟与抖动建模
+#### 3.3.3 延迟与抖动建模（预留）
 
-- **传播延迟**：10-50ps（可配置）
-- **抖动注入**：支持DCD（占空比失真）和RJ（随机抖动）
-- **应用场景**：测试CDR的抖动容限能力
+- **传播延迟**：计划 10-50ps，**未实现**
+- **抖动注入**：计划支持 DCD/RJ，**未实现**
+- **应用场景**：未来 CDR 抖动容限测试
 
 ### 3.4 Driver输出级设计
 
@@ -307,20 +309,24 @@ H(s) = Gdc × ∏(1 + s/ωp_j)^(-1)
 
 #### 3.4.3 非线性饱和
 
-**软饱和（推荐）**：
+**软饱和（推荐，2026-10 语义）**：
 
-```
-Vout = Vswing × tanh(Vin / Vlin)
+```cpp
+double vdf  = Z0 / (output_impedance + Z0);   // 阻抗分压系数
+double vsat = (vswing / 2.0) / vdf;           // 内部分压前限幅电平
+Vout = vsat * tanh(Vin / vsat);               // 单位增益，小信号斜率 = 1
 ```
 
 - 连续导数，谐波失真小
-- Vlin参数决定线性区范围
-- 推荐：`Vlin = Vswing / 1.2`
+- `vswing` 为**信道侧**差分 Vpp（经阻抗分压后）；内部限幅电平按 `1/vdf` 放大
+- `vlin` 已废弃并被忽略；额外小信号增益只能来自 `dc_gain`
 
 **硬饱和**：
 
-```
-Vout = clamp(Vin, -Vswing/2, +Vswing/2)
+```cpp
+double vdf  = Z0 / (output_impedance + Z0);
+double vsat = (vswing / 2.0) / vdf;
+Vout = std::max(-vsat, std::min(vsat, Vin));
 ```
 
 - 计算简单但导数不连续

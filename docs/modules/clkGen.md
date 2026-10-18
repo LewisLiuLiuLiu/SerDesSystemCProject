@@ -7,11 +7,13 @@
 **Current Version**: v0.1 (2026-01-20)  
 **Status**: In Development
 
+> **2026-10 implementation status**: only `IDEAL` is functional. `PLL` and `ADPLL` dispatch to `process_pll()` / `process_adpll()`, which are **placeholders** that fall back to the ideal phase accumulator (no lock process, no loop dynamics, no phase noise). `ClockParams::type` and `config/default.json` still default to `PLL`, and the PLL fields are validated, but selecting PLL/ADPLL adds no behavior; the config file carries an explicit warning, and `type: "IDEAL"` should be used when ideal-clock behavior is intended. The PLL/ADPLL descriptions below are design plans, not implemented features.
+
 ---
 
 ## 1. Overview
 
-The Clock Generator is the core clock source module of the SerDes system, responsible for providing stable clock phase signals to the Transmitter (TX), Receiver (RX), and Clock Data Recovery (CDR) circuits. The module supports multiple clock generation modes, including Ideal Clock, Analog Phase-Locked Loop (PLL), and All-Digital Phase-Locked Loop (ADPLL).
+The Clock Generator is the core clock source module of the SerDes system, responsible for providing stable clock phase signals to the Transmitter (TX), Receiver (RX), and Clock Data Recovery (CDR) circuits. The module defines clock generation modes for Ideal Clock, Analog Phase-Locked Loop (PLL), and All-Digital Phase-Locked Loop (ADPLL); currently only IDEAL is implemented (PLL/ADPLL are placeholders).
 
 ### 1.1 Design Principles
 
@@ -31,10 +33,10 @@ where `f` is the clock frequency, `t` is the simulation time, and `mod` represen
 
 ### 1.2 Core Features
 
-- **Multiple Clock Types**: Supports Ideal Clock (IDEAL), Analog PLL (PLL), and All-Digital PLL (ADPLL)
+- **Clock Type Selection**: `IDEAL` is implemented; `PLL` and `ADPLL` are reserved placeholders that currently fall back to IDEAL behavior
 - **Phase Output Interface**: Outputs continuous phase values (0~2π) for use by downstream modules
 - **Adaptive Sampling Rate**: Time step is automatically adjusted based on clock frequency (default is 100× the frequency)
-- **PLL Parameterized Configuration**: Supports complete configuration of phase detector type, charge pump current, loop filter, VCO parameters, and divider ratio
+- **PLL Parameter Interface (Reserved)**: Defines phase detector type, charge pump current, loop filter, VCO parameters, and divider ratio for a future PLL implementation
 - **Flexible Frequency Settings**: Supports arbitrary frequency configuration (e.g., 40GHz for high-speed SerDes)
 
 ### 1.3 Version History
@@ -61,17 +63,17 @@ The phase output is a continuous-time signal, with the instantaneous phase value
 
 | Parameter | Type | Default Value | Description |
 |-----------|------|---------------|-------------|
-| `type` | ClockType | PLL | Clock generation type (IDEAL/PLL/ADPLL) |
+| `type` | ClockType | PLL | Clock generation type (IDEAL/PLL/ADPLL). Only IDEAL is implemented; PLL/ADPLL fall back to IDEAL |
 | `frequency` | double | 40e9 | Clock frequency (Hz) |
 
 **Clock Type Descriptions**:
-- `IDEAL`: Ideal clock, no jitter, no noise, phase grows strictly linearly
-- `PLL`: Analog phase-locked loop, supports complete chain modeling of PD/CP/LF/VCO/Divider
-- `ADPLL`: All-digital phase-locked loop, digital phase detector, TDC, DCO and other digital domain implementations
+- `IDEAL`: Ideal clock, no jitter, no noise, phase grows strictly linearly (the only implemented mode)
+- `PLL`: Analog phase-locked loop. **Placeholder**: PD/CP/LF/VCO/Divider parameters are defined and validated, but no loop dynamics are simulated; processing falls back to IDEAL
+- `ADPLL`: All-digital phase-locked loop. **Placeholder**: no digital phase detector/TDC/DCO model; processing falls back to IDEAL
 
 #### PLL Substructure (ClockPllParams)
 
-Analog phase-locked loop parameters, used for implementing real clock generation circuit modeling.
+Analog phase-locked loop parameters, **reserved for a future implementation**. They are validated at construction but do not affect the output in the current placeholder.
 
 | Parameter | Type | Default Value | Description |
 |-----------|------|---------------|-------------|
@@ -114,8 +116,8 @@ The PLL adopts a typical second-order loop structure, consisting of the followin
 
 **Current Implementation Status**:
 - PLL parameter structure is fully defined
-- Current `processing()` method only implements ideal clock generation
-- Future versions will implement complete PLL dynamic behavior modeling
+- Current `processing()` falls back to ideal clock generation for PLL/ADPLL (no lock or noise behavior)
+- Future versions will implement complete PLL/ADPLL dynamic behavior modeling
 
 ---
 

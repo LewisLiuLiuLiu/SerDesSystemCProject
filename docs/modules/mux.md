@@ -7,6 +7,8 @@
 **Current Version**: v0.1 (2026-01-13)  
 **Status**: In Development
 
+> **2026-10 semantics note**: `TxMuxTdf` is still a single-input/single-output **pass-through** (`out = in`, `set_rate(1)`, one sample per TDF timestep at the global `Fs`); `lane_sel` is stored but unused, and no delay/jitter model is implemented. In the current TX top the differential conversion is a separate `SingleToDiffTdf` stage after the Mux (`FFE → Mux → SingleToDiff → Driver`), so the Mux itself handles single-ended samples only. `mux_delay`, jitter and multi-lane items in this document are reserved design plans, not current behavior. The port table and `tx.mux_lane` default are synced with `include/ams/tx_mux.h` and `src/ams/tx_mux.cpp`.
+
 ---
 
 ## 1. Overview
@@ -84,9 +86,9 @@ The Mux is a significant jitter source in the SerDes transmitter. The behavioral
 
 - **Symbol Rate Synchronization**: Input and output sampling rates are consistent, operating in the symbol rate clock domain, compatible with timing requirements of preceding FFE and following Driver modules. Sampling rate is controlled by global parameter `Fs` (sampling frequency).
 
-- **Configurable Delay**: Optional parameter `mux_delay` is used to model the propagation delay of the selector, matching real hardware timing characteristics. Delay range is typically 10-50ps, specific values depend on process node and topology.
+- **Delay Modeling (Reserved)**: Optional parameter `mux_delay` is planned to model selector propagation delay. It is **not implemented** in the current code; delay range is typically 10-50ps, specific values depend on process node and topology.
 
-- **Jitter Modeling Support**: Optionally injects Deterministic Jitter (DCD) and Random Jitter (RJ) to simulate the effects of clock non-idealities and circuit noise on output signal quality. Jitter parameters are flexibly set through configuration files.
+- **Jitter Modeling (Reserved)**: DCD and RJ injection are planned to simulate clock non-idealities and circuit noise, but are **not implemented** in the current pass-through version. Jitter parameters are reserved for configuration files.
 
 - **Bypass Mode**: When `lane_sel=0` and no delay/jitter is configured, the module degrades to pass-through mode for front-end debugging or single-channel system verification.
 
@@ -109,7 +111,7 @@ TX Mux configuration in different SerDes architectures:
   The Mux receives equalized symbol signals from the FFE, with inputs being nominal amplitude digital signals (e.g., ±1V). The FFE output timing must meet the Mux setup time requirement, typically > 0.2 UI.
 
 - **Downstream Module (Driver)**  
-  Mux output is sent to the Driver for power amplification and impedance matching. Mux output delay and jitter directly affect the Driver sampling moment and eye diagram quality, requiring joint optimization of timing budgets.
+  In the current TX top, Mux output is first converted by `SingleToDiffTdf` and then sent to the Driver for power amplification and impedance matching. Mux output timing and jitter (when implemented) directly affect the Driver sampling moment and eye diagram quality, requiring joint optimization of timing budgets.
 
 - **Clock Source (Clock Generation)**  
   In real hardware, the Mux relies on multi-phase clocks or a Phase Interpolator (PI) to implement time-division multiplexing. In the behavioral model, clock accuracy effects are abstracted into jitter parameters (such as DCD, RJ), configured by the user based on Clock module specifications.
@@ -121,7 +123,7 @@ TX Mux configuration in different SerDes architectures:
 
 | Version | Date | Major Changes |
 |---------|------|---------------|
-| v0.1 | 2026-01-13 | Initial version, implementing single-input single-output architecture, channel selection, and basic delay modeling |
+| v0.1 | 2026-01-13 | Initial version: single-input single-output pass-through and `lane_sel` placeholder; delay/jitter modeling not implemented |
 
 ---
 
@@ -133,8 +135,10 @@ TX Mux adopts a single-ended signal architecture, all ports are TDF domain analo
 
 | Port Name | Direction | Type | Description |
 |-----------|-----------|------|-------------|
-| `in` | Input | double | Input data signal (from FFE or other preceding modules) |
-| `out` | Output | double | Output data signal (to Driver or following modules) |
+| `in` | Input | double | Input data signal (single-ended; from FFE or other preceding modules) |
+| `out` | Output | double | Output data signal (single-ended; feeds `SingleToDiffTdf` in the current TX top) |
+
+> **Port note (2026-10)**: both ports are scalar `double` at `rate=1`; the header has no differential pair and no array of lane inputs. Differential conversion is performed by the separate `SingleToDiffTdf` module.
 
 #### Port Connection Notes
 
