@@ -137,6 +137,7 @@ set(SAMPLER_TESTS
     sampler_output_range_pos05      # 输出范围正0.5测试
     sampler_de_output               # DE输出测试
     sampler_de_negative_input       # DE负输入测试
+    sampler_minimal                 # 最小无触发保持测试（无触发时输出保持 0）
     sampler_dynamic_threshold       # 动态门限（Vref 闭环）+ 模糊判决围绕门限
 )
 
