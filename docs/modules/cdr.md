@@ -57,6 +57,7 @@ The phase detector outputs discrete Early/Late signals, which are integrated and
 | `in` | Input | double | Received data input (analog signal, from DFE or sampler) |
 | `phase_out` | Output | double | Phase adjustment output (unit: seconds s) |
 | `sampling_trigger` | Output | bool | Sampling trigger (2 per UI: edge @ k·UI+qq, data @ k·UI+sample_point·UI+qq) |
+| `data_trigger` | Output | bool | Data strobe (1 per UI, at the data-sampling instant); drives DFE Summer history shift, DfeAdaptTdf adaptation and the external data latch |
 | `phase_error_de` | Output | double (DE bridge) | BBPD phase error (seconds, 0/±UI) for AdaptionDe monitoring/freeze; write-on-change |
 
 > **Port Notes**:
@@ -64,6 +65,8 @@ The phase detector outputs discrete Early/Late signals, which are integrated and
 > - The `phase_out` port outputs phase offset (unit: seconds), connected to the sampler's `phase_offset` input port
 > - Positive values indicate delayed sampling (late clock), negative values indicate early sampling (early clock)
 > - **Sampling trigger timebase (2026-10 revision)**: trigger instants are scheduled exactly on the integer step grid (ceil-aligned); exactly 2 triggers per UI for any timestep configuration. The previous float phase-accumulation + crossing-detection implementation intermittently skipped crossings (worst case: a 16-UI sampling gap; P0-1/F-22)
+> - **Data strobe (2026-10)**: `data_trigger` fires once per UI at the data-sampling instant (not at the edge instant). It is the strobe for the DFE Summer history FIFO, DfeAdaptTdf and the `DataStrobeLatchTdf` that produces the clean 1/UI `data_out` stream.
+> - **Phase error DE bridge (2026-10)**: `phase_error_de` carries the raw BBPD error scaled to seconds (0 or ±UI) and is written only on change (initial write forced), so AdaptionDe sees an event-driven value rather than a per-step stream.
 
 ### 2.2 Parameter Configuration
 
@@ -207,6 +210,8 @@ Step 1: Read Input Data → Step 2: Edge Detection → Step 3: Bang-Bang Phase D
 Step 4: PI Controller Update → Step 5: Phase Range Limiting → Step 6: Output Phase Adjustment
 ```
 
+> **2026-10 implementation order**: the per-UI algorithm above (Steps 1–6) runs only when a data sample is consumed; the actual `processing()` then (a) quantizes the phase for trigger scheduling, (b) re-schedules the not-yet-emitted edge/data triggers on the integer step grid, and (c) writes `phase_out` (raw, unquantized), `sampling_trigger`, `data_trigger` and the write-on-change `phase_error_de`. `phase_out` is therefore updated every TDF step (held value between PI updates); quantization only affects trigger instants. There is no free-running phase accumulator or `fmod` timebase any more.
+
 **Step 1 - Read Input Data**: Read the current data signal from the `in` port.
 
 **Step 2 - Edge Detection**: Detect data transitions by comparing the current bit with the previous bit:
@@ -227,10 +232,10 @@ if (std::abs(current_bit - m_prev_bit) > threshold) {
 > - Real BBPD requires **XOR result of data sampler and edge sampler** to determine early/late, not simply based on edge polarity
 > - Current implementation is for demonstration purposes only; actual applications require complete BBPD architecture (see Section 3.2)
 
-**Step 4 - PI Controller Update**: Update the phase accumulation based on phase error:
+**Step 4 - PI Controller Update**: Update the PI state once per UI, at the data-sampling instant, based on the BBPD phase error:
 ```cpp
 m_integral += ki * phase_error;  // Integral state update
-double phase_output = kp * phase_error + m_integral;  // PI output
+double phase_output = kp * phase_error + m_integral;  // PI output (UI, then × UI → seconds)
 ```
 
 **Step 5 - Phase Range Limiting**: Limit phase output within ±range:
@@ -244,7 +249,7 @@ if (phase_output < -range) phase_output = -range;
 double quantized_phase = std::round(phase_output / resolution) * resolution;
 ```
 
-**Step 7 - Output Phase Adjustment**: Write the phase adjustment to the `phase_out` port and pass to the sampler.
+**Step 7 - Output Phase Adjustment**: Write the (raw) phase adjustment to the `phase_out` port; the quantized copy is used only for integer-grid trigger scheduling. `data_trigger` pulses at the data instant, and `phase_error_de` is written on change for AdaptionDe.
 
 ### 3.2 Bang-Bang Phase Detector Principles
 

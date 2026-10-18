@@ -6,6 +6,8 @@
 **当前版本**：v1.0 (2026-01-27)  
 **状态**：生产就绪
 
+> **2026-10 语义修订注记**：v1.1 表格编写后内部接线已有实质变化。`data_out` 现由 `DataStrobeLatchTdf` 以 CDR `data_trigger` 锁存，输出**干净 1/UI 判决流**（不再是边沿/数据混合的采样器原始流）。Sampler 为触发驱动（`sampling_trigger`），可用 `vref_threshold_de` 动态门限，`hysteresis` 被忽略。DFE 抽头自适应已迁至 `DfeAdaptTdf`；AdaptionDe 只负责 AGC / CDR-PI / `vref_cmd`（无 `dfe_taps`、无阈值自适应）。2.2 端口表与 2.3.2 子模块表已同步；ASCII 拓扑图、2.3.4 与 3.5/3.6/7.x 的算法片段为 2026-10 之前的历史记录。
+
 ---
 
 ## 1. 概述
@@ -77,7 +79,7 @@ RX接收端的核心设计思想是采用分级级联架构，每个子模块专
 | **CTLE** | `RxCtleTdf` | 连续时间线性均衡器 | zeros, poles, dc_gain | ctle.md |
 | **VGA** | `RxVgaTdf` | 可变增益放大器 | dc_gain(可调), zeros, poles | vga.md |
 | **DFE Summer** | `RxDfeSummerTdf` | 判决反馈均衡求和器 | tap_coeffs, vtap, map_mode | dfesummer.md |
-| **Sampler** | `RxSamplerTdf` | 采样器/判决器 | resolution, hysteresis, phase_source | sampler.md |
+| **Sampler** | `RxSamplerTdf` | 采样器/判决器 | resolution, threshold, threshold_invert, vref_threshold_de | sampler.md |
 | **CDR** | `RxCdrTdf` | 时钟数据恢复 | kp, ki, resolution, range | cdr.md |
 | **Adaption** | `AdaptionDe` | DE域自适应控制中枢 | agc, dfe, threshold, cdr_pi, safety | adaption.md |
 
@@ -185,10 +187,10 @@ RX接收端的核心设计思想是采用分级级联架构，每个子模块专
 
 **关键信号流**：
 
-- **前向路径**：`in_p/in_n` → CTLE → VGA → DFE Summer → Sampler → `data_out`
-- **DFE反馈路径**：Sampler.data_out（历史判决）→ DFE.data_in（抽头输入）
-- **CDR闭环路径**：Sampler.data_out → CDR.in → CDR.phase_out → Sampler.phase_offset
-- **DE-TDF桥接路径**：Adaption ↔ VGA/DFE/Sampler/CDR（参数控制与反馈）
+- **前向路径**：`in_p/in_n` → CTLE → VGA → DFE Summer → Sampler → `DataStrobeLatchTdf` → `data_out`（干净 1/UI）
+- **DFE反馈路径**：Sampler.data_out（标量 0/1）→ DFE Summer.data_in，由 CDR `data_trigger` 频闪移位
+- **CDR闭环路径**：Sampler.data_out → CDR.in（double）；CDR.sampling_trigger → Sampler；CDR.data_trigger → DFE Summer / DfeAdaptTdf / 数据锁存
+- **DE-TDF桥接路径**：AdaptionDe ↔ VGA/Sampler(threshold)/CDR（AGC、相位命令、Vref 命令）；DfeAdaptTdf ↔ AdaptionDe（统计量与抽头）
 
 ### 2.2 端口定义（DE域 - Adaption模块）
 
@@ -198,13 +200,16 @@ Adaption模块作为DE域自适应控制中枢，通过DE-TDF桥接机制与TDF�
 
 | 端口名 | 类型 | 说明 |
 |-------|------|------|
-| `phase_error` | double | 来自CDR的相位误差（s或归一化UI） |
-| `amplitude_rms` | double | 来自RX幅度统计的RMS值 |
-| `error_count` | int | 来自Sampler的判决错误计数 |
-| `isi_metric` | double | ISI指标（可选，用于DFE策略） |
+| `phase_error` | double | 来自 CDR `phase_error_de` 的相位误差（s或归一化UI） |
+| `amplitude_rms` | double | 来自 TDF 幅度检测器的幅度 EMA |
+| `gain_saturated` | bool | VGA 饱和标志（AGC 上调互锁） |
 | `mode` | int | 工作模式：0=init, 1=training, 2=data, 3=freeze |
 | `reset` | bool | 全局复位信号 |
 | `scenario_switch` | double | 场景切换事件（可选） |
+| `stat_N_A` … `stat_Delta` | int/double | DfeAdaptTdf 统计量（计数、P_pos/P_neg、C、Delta） |
+| `stat_dfe_state` | int | DFE 状态机状态（0=STARTUP，1=ACQUIRE，2=TRACK） |
+
+> **已移除输入（2026-10）**：`error_count` 与 `isi_metric` 不再属于 `AdaptionDe`；依赖它们的旧阈值/DFE 路径已删除。
 
 #### 2.2.2 Adaption输出端口
 
@@ -214,12 +219,14 @@ Adaption模块作为DE域自适应控制中枢，通过DE-TDF桥接机制与TDF�
 | `ctle_zero` | double | CTLE零点频率（Hz，可选） | CTLE |
 | `ctle_pole` | double | CTLE极点频率（Hz，可选） | CTLE |
 | `ctle_dc_gain` | double | CTLE DC增益（线性，可选） | CTLE |
-| `dfe_tap1`~`dfe_tap8` | double | DFE抽头系数（固定8个独立端口） | DFE Summer |
-| `sampler_threshold` | double | 采样器阈值（V） | Sampler |
-| `sampler_hysteresis` | double | 采样器迟滞窗口（V） | Sampler |
-| `phase_cmd` | double | 相位插值器命令（s） | CDR |
+| `vref_cmd` | double | Vref 命令（绝对值，V） | ±Vref 比较器 / DfeAdaptTdf |
+| `sampler_threshold` | double | 采样器阈值（V）；固定默认 0.0 | Sampler |
+| `sampler_hysteresis` | double | **已废弃**固定值，Sampler 忽略 | （端口兼容） |
+| `phase_cmd` | double | 相位插值器命令（s） | CDR（监视） |
 | `update_count` | int | 更新计数器（诊断用） | 外部监控 |
 | `freeze_flag` | bool | 冻结/回退状态标志 | 外部监控 |
+
+> **已移除输出（2026-10）**：`dfe_tap1`~`dfe_tap8` 不再由 AdaptionDe 驱动；DFE 抽头来自 `DfeAdaptTdf`。
 
 #### 2.2.3 DE-TDF桥接关系图
 
@@ -275,11 +282,13 @@ struct CdrParams {
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | 单零点单极点 | 高频提升，带宽限制 |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | 可变增益 | AGC动态调整 |
 | DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3抽头 | 后游标ISI抵消 |
-| Sampler | `resolution=0.02`, `hysteresis=0.01` | 模糊判决 | 亚稳态建模 |
-| CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI控制器 | 相位跟踪 |
-| Adaption | `agc.target=0.4`, `dfe.mu=1e-4`, `safety.freeze_threshold=1000` | 多速率调度 | 自适应优化 |
+| Sampler | `resolution=0.02`, `threshold=0.0`, `vref_threshold_de`（动态） | 模糊判决 | 亚稳态建模、±Vref 比较器 |
+| CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI控制器 | 相位跟踪（每 UI 2 触发 + data_trigger） |
+| Adaption | `agc.target=0.4`, `vref_adapt`, `safety` | 多速率调度 | AGC、CDR PI、Vref 命令（DFE 抽头在 DfeAdaptTdf） |
 
 #### 2.3.4 Adaption参数详解
+
+> **历史快照（2026-10 之前）**：本表仍列有已退役的阈值自适应字段、以 UI 为单位的调度周期和 `freeze_threshold`。当前接口为：AGC（`target_amplitude/kp/ki/gain_min/gain_max/rate_limit/initial_gain`）、`vref_adapt`（`vref_initial/target_confidence/asymmetry_alert/adapt_alpha`）、CDR PI 与 `safety`（`freeze_on_error/rollback_enable/snapshot_interval`）；周期单位为**秒**且必须 > 0（fail-fast）。DFE 字段用于配置 `DfeAdaptTdf`。
 
 | 子结构 | 参数 | 默认值 | 说明 |
 |----------|------|--------|------|
@@ -476,10 +485,10 @@ double compute_feedback() {
 
 #### 3.4.1 相位检测与调整
 
-1. **Sampler**：根据`phase_offset`信号动态调整采样时刻
+1. **Sampler**：在 CDR `sampling_trigger` 上采样、触发之间保持（已无 `phase_offset` 端口）
 2. **CDR**：检测数据边沿与当前相位关系，计算相位误差
-3. **PI控制器**：根据误差更新相位累积量
-4. **相位量化**：按PAI分辨率量化后输出给Sampler
+3. **PI控制器**：每 UI 在数据采样时刻更新一次 PI 状态
+4. **触发调度**：量化相位在整数步格上重排 edge/data 触发；`data_trigger` 为 DFE/锁存提供频闪
 
 #### 3.4.2 Bang-Bang相位检测算法
 

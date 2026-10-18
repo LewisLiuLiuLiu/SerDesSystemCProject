@@ -42,7 +42,7 @@ v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
 - **比特映射模式**：支持 ±1 映射（推荐，抗直流偏置更稳健）和 0/1 映射
 - **自适应接口**：通过 DE→TDF 桥接端口接收来自 Adaption 模块的实时抽头更新
 - **软饱和机制**：可选的输出限幅，防止过补偿导致的信号失真
-- **历史比特接口**：通过 data_in 端口接收外部维护的历史判决数组，简化模块职责
+- **历史比特接口**：`data_in` 接收当前判决标量（0/1）；模块内部自行维护 b[n-1]…b[n-N] 历史，仅在 `data_strobe`（CDR `data_trigger`，1/UI）到来时移位一次
 
 ### 1.3 版本历史
 
@@ -64,7 +64,8 @@ v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
 |--------|------|------|------|
 | `in_p` | 输入 | double | 差分输入正端（来自 VGA） |
 | `in_n` | 输入 | double | 差分输入负端（来自 VGA） |
-| `data_in` | 输入 | vector&lt;int&gt; | 历史判决数据数组 |
+| `data_in` | 输入 | double | 当前判决比特，标量 0/1（来自 Sampler）；与 `data_strobe` 配合使用 |
+| `data_strobe` | 输入 | bool | 来自 CDR `data_trigger` 的数据频闪（1/UI）；每个上升沿将历史 FIFO 移位一次 |
 | `out_p` | 输出 | double | 差分输出正端（送往 Sampler） |
 | `out_n` | 输出 | double | 差分输出负端（送往 Sampler） |
 
@@ -74,10 +75,11 @@ v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
 |--------|------|------|------|
 | `tap_coeffs_de` | 输入 | vector&lt;double&gt; | 来自 Adaption 的抽头系数更新 |
 
-> **关于 data_in 端口**：
-> - 数组长度由 `tap_coeffs` 的长度 N 决定
-> - `data_in[0]` 为最近一次判决 b[n-1]，`data_in[1]` 为 b[n-2]，...，`data_in[N-1]` 为 b[n-N]
-> - 数组由 RX 顶层模块或 Sampler 维护更新，DFE Summer 只读取不修改
+> **关于 data_in / data_strobe 端口（2026-10）**：
+> - `data_in` 只携带最新判决 b[n-1]，为标量（0 或 1），**不是**数组
+> - 内部历史为 `[b[n-1], b[n-2], ..., b[n-N]]`，仅在 `data_strobe` 上升沿移位一次，而不是每个 TDF 步都移位
+> - `data_strobe` 必须接 CDR `data_trigger`（1/UI，数据采样时刻）；没有频闪时历史与反馈保持冻结
+> - 长度一致性由构造期的 `tap_coeffs.size()` 保证，无需每步校验外部数组
 
 ### 2.2 参数配置（RxDfeSummerParams）
 
@@ -110,7 +112,7 @@ v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
 
 | 参数 | 说明 |
 |------|------|
-| `tap_count` | 抽头数量 N，等于 `tap_coeffs.size()`，决定 `data_in` 数组长度 |
+| `tap_count` | 抽头数量 N，等于 `tap_coeffs.size()`，决定内部历史深度 |
 
 #### 比特映射模式说明
 
@@ -131,23 +133,20 @@ v_fb = Σ_{k=1}^{N} c_k × map(b[n-k]) × vtap
 DFE Summer 模块的 `processing()` 方法采用严格的多步骤处理架构：
 
 ```
-输入读取 → 使能检查 → 历史数据验证 → 反馈计算 → 差分求和 → 可选限幅 → 共模合成 → 输出
+输入读取 → 使能检查 → 频闪移位历史 → 反馈计算 → 差分求和 → 可选限幅 → 共模合成 → 输出
 ```
 
 **步骤 1 - 输入读取**：从差分输入端口读取信号，计算差分分量 `v_main = in_p - in_n`。
 
 **步骤 2 - 使能检查**：若 `enable=false`，直接将输入信号进行共模合成后输出（直通模式）。
 
-**步骤 3 - 历史数据验证**：读取 `data_in` 数组，验证长度是否等于 `tap_count`。若不匹配：
-- 长度不足：用 0 填充
-- 长度过多：截断
-- 应输出警告日志
+**步骤 3 - 频闪移位历史**：仅在 `data_strobe` 上升沿读取标量 `data_in`（0/1），将内部历史 FIFO 移位一次。两次频闪之间历史不变，因此即使 `ts = ui/10`，同一判决也不会被重复插入。
 
-**步骤 4 - 反馈计算**：遍历所有抽头，计算总反馈电压：
+**步骤 4 - 反馈计算**：遍历所有抽头（基于内部历史），计算总反馈电压：
 ```cpp
 v_fb = 0.0;
 for (int k = 0; k < tap_count; k++) {
-    double bit_val = map(data_in[k], map_mode);  // 比特映射
+    double bit_val = map(history[k], map_mode);  // 比特映射，history[0] = b[n-1]
     v_fb += tap_coeffs[k] * bit_val * vtap;
 }
 ```
@@ -204,8 +203,8 @@ DFE Summer 支持两种抽头配置模式：
 
 **规避方案**：
 - 严格使用历史符号 b[n-k] (k≥1) 进行反馈计算
-- `data_in` 数组机制天然保证这一点：`data_in[0]` 最早也是 b[n-1]
-- 数组更新由外部模块在当前 UI 判决完成后、下一 UI 开始前执行
+- 内部历史 FIFO 天然保证这一点：`history[0]` 最早也是 b[n-1]
+- FIFO 仅在 CDR 数据频闪时移位，即当前 UI 判决就绪之后、下一 UI 反馈计算之前
 
 ### 3.4 直通模式设计
 
@@ -217,8 +216,8 @@ DFE Summer 支持两种抽头配置模式：
 
 直通模式下：
 - `v_fb = 0`，输出 = 输入（经共模合成）
-- `data_in` 数组的值不影响输出
-- 但 `data_in` 仍应保持有效长度，以兼容后续自适应启用
+- `data_in` / `data_strobe` 的值不影响输出
+- 但 `data_strobe` 仍应连接，以保证后续启用自适应时历史一致
 
 ---
 

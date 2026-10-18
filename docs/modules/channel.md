@@ -4,8 +4,10 @@
 
 **Level**: AMS Top-Level Module  
 **Class Name**: `ChannelSParamTdf`  
-**Current Version**: v1.0 (2026-03-22)  
+**Current Version**: v1.1 (2026-10-18)  
 **Status**: Production Ready (Full S-Parameter Modeling)
+
+> **2026-10 implementation note**: `full_model.delay_s` is now **applied at runtime**. Each active output gets a ring-buffer delay of `round(tau/dt)` samples, using the `(active_output, active_inputs[0])` entry of `port_pairs` as the main-path lookup (previously the delay was parsed and ignored, so the simulated channel had ~0 ns while fixtures carry ~4 ns). Per-input skew inside a shared MIMO realization is not separable from one state vector and is not modeled; the channel testbench now drives input[0] and records output[1] (S21 path) with unused MIMO inputs tied to 0 V.
 
 ---
 

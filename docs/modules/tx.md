@@ -6,6 +6,8 @@
 **Current Version**: v1.0 (2026-01-27)  
 **Status**: Production Ready
 
+> **2026-10 semantics note**: the Driver `vswing` is now the **channel-side** differential Vpp (after impedance division; the internal clamp is scaled by 1/vdf), soft saturation is **unit-gain** `Vsat·tanh(x/Vsat)`, and `vlin` is deprecated/ignored (kept only for config compatibility). See `driver.md` for the full revision note; the formula in 3.4.3 and the JSON example below are synced.
+
 ---
 
 ## 1. Overview

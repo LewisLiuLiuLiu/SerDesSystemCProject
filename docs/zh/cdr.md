@@ -57,6 +57,7 @@ CDR的核心设计思想是利用数据跃变边沿携带的时钟信息，通�
 | `in` | 输入 | double | 接收数据输入（模拟信号，来自DFE或采样器） |
 | `phase_out` | 输出 | double | 相位调整输出（单位：秒s） |
 | `sampling_trigger` | 输出 | bool | 采样触发输出（每 UI 2 个：边沿 @ k·UI+qq、数据点 @ k·UI+sample_point·UI+qq） |
+| `data_trigger` | 输出 | bool | 数据频闪（每 UI 1 个，位于数据采样时刻）；驱动 DFE Summer 历史移位、DfeAdaptTdf 自适应及外部数据锁存 |
 | `phase_error_de` | 输出 | double（DE桥） | BBPD 相位误差（单位：秒，取值 0/±UI），供 AdaptionDe 监视/冻结判据；写变更触发 |
 
 > **端口说明**：
@@ -64,6 +65,8 @@ CDR的核心设计思想是利用数据跃变边沿携带的时钟信息，通�
 > - `phase_out`端口输出相位偏移量（单位：秒），连接到采样器的`phase_offset`输入端口
 > - 正值表示延迟采样（时钟晚），负值表示提前采样（时钟早）
 > - **采样触发时基（2026-10 修订）**：触发时刻按整数步格精确调度（ceil 对齐），任何 timestep 配置下每 UI 恰好 2 个触发；此前基于浮点相位累加+过零检测的实现会间歇漏触发（最坏 16 UI 采样空档，P0-1/F-22）
+> - **数据频闪（2026-10）**：`data_trigger` 每 UI 在数据采样时刻（非边沿时刻）发出一次，作为 DFE Summer 历史 FIFO、DfeAdaptTdf 自适应和 `DataStrobeLatchTdf`（产生干净 1/UI `data_out`）的频闪。
+> - **相位误差 DE 桥（2026-10）**：`phase_error_de` 输出 BBPD 原始误差换算到秒（0 或 ±UI），仅在值变化时写入（首次强制写），AdaptionDe 读到的是事件驱动量而非每步流。
 
 ### 2.2 参数配置
 
@@ -207,6 +210,8 @@ CDR模块的`processing()`方法实现以下处理步骤：
 步骤4: PI控制器更新 → 步骤5: 相位范围限制 → 步骤6: 输出相位调整
 ```
 
+> **2026-10 实现顺序**：上述每 UI 算法（步骤1–6）仅在消费到数据样本时执行；实际 `processing()` 随后 (a) 量化相位用于触发调度，(b) 把尚未发出的 edge/data 触发按整数步格重排，(c) 写出 `phase_out`（原始未量化）、`sampling_trigger`、`data_trigger` 以及写变更的 `phase_error_de`。因此 `phase_out` 每个 TDF 步都会刷新（PI 未更新时保持），量化只影响触发时刻。已无自由相位累加器，也不再使用 `fmod` 时基。
+
 **步骤1 - 读取输入数据**：从`in`端口读取当前采样点的数据信号。
 
 **步骤2 - 边沿检测**：通过比较当前比特与前一比特，检测数据跃变：
@@ -227,10 +232,10 @@ if (std::abs(current_bit - m_prev_bit) > threshold) {
 > - 真实的BBPD需要使用**数据采样器和边沿采样器的异或结果**来判断相位早晚，而不是简单地根据边沿极性判断
 > - 当前实现仅用于演示CDR环路结构，实际应用需使用完整的BBPD架构（见3.2节）
 
-**步骤4 - PI控制器更新**：根据相位误差更新相位累积量：
+**步骤4 - PI控制器更新**：每 UI 在数据采样时刻依据 BBPD 相位误差更新一次 PI 状态：
 ```cpp
 m_integral += ki * phase_error;  // 积分状态更新
-double phase_output = kp * phase_error + m_integral;  // PI输出
+double phase_output = kp * phase_error + m_integral;  // PI输出（UI，再 × UI → 秒）
 ```
 
 **步骤5 - 相位范围限制**：将相位输出限制在±range范围内：
@@ -244,7 +249,7 @@ if (phase_output < -range) phase_output = -range;
 double quantized_phase = std::round(phase_output / resolution) * resolution;
 ```
 
-**步骤7 - 输出相位调整**：将相位调整量写入`phase_out`端口，传递给采样器。
+**步骤7 - 输出相位调整**：将（原始）相位调整量写入`phase_out`端口；量化副本仅用于整数步格触发调度。`data_trigger`在数据时刻发出，`phase_error_de`按写变更供 AdaptionDe 使用。
 
 ### 3.2 Bang-Bang相位检测器原理
 

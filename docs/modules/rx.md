@@ -6,6 +6,8 @@
 **Current Version**: v1.0 (2026-01-27)  
 **Status**: Production Ready
 
+> **Semantics revision note (2026-10)**: internal wiring has changed materially since the v1.1 tables were written. `data_out` is now produced by a `DataStrobeLatchTdf` clocked by the CDR `data_trigger`, so it is a **clean 1/UI decision stream** (not the edge/data mixed sampler stream). The Sampler is trigger-driven (`sampling_trigger`), uses `vref_threshold_de` as an optional dynamic threshold, and ignores `hysteresis`. DFE adaptation (taps) moved to `DfeAdaptTdf`; AdaptionDe drives AGC/CDR-PI/`vref_cmd` only (no `dfe_taps`, no threshold adaptation). The port tables in 2.2 and the sub-module table in 2.3.2 are synced; the ASCII topology diagrams, section 2.3.4 and the algorithm snippets in 3.5/3.6/7.x are pre-2026-10 historical records.
+
 ---
 
 ## 1. Overview
@@ -77,7 +79,7 @@ Channel Output → CTLE → VGA → DFE Summer → Sampler → Digital Output
 | **CTLE** | `RxCtleTdf` | Continuous-Time Linear Equalizer | zeros, poles, dc_gain | ctle.md |
 | **VGA** | `RxVgaTdf` | Variable Gain Amplifier | dc_gain(adjustable), zeros, poles | vga.md |
 | **DFE Summer** | `RxDfeSummerTdf` | Decision Feedback Equalizer Summer | tap_coeffs, vtap, map_mode | dfesummer.md |
-| **Sampler** | `RxSamplerTdf` | Sampler/Decision Circuit | resolution, hysteresis, phase_source | sampler.md |
+| **Sampler** | `RxSamplerTdf` | Sampler/Decision Circuit | resolution, threshold, threshold_invert, vref_threshold_de | sampler.md |
 | **CDR** | `RxCdrTdf` | Clock Data Recovery | kp, ki, resolution, range | cdr.md |
 | **Adaption** | `AdaptionDe` | DE Domain Adaptive Control Hub | agc, dfe, threshold, cdr_pi, safety | adaption.md |
 
@@ -101,7 +103,7 @@ Channel Output → CTLE → VGA → DFE Summer → Sampler → Digital Output
 | `in_p` | Input | double | Differential input positive terminal from channel |
 | `in_n` | Input | double | Differential input negative terminal from channel |
 | `vdd` | Input | double | Supply voltage (for PSRR modeling) |
-| `data_out` | Output | int | Recovered digital bitstream (0/1) |
+| `data_out` | Output | double | Recovered decision stream (0.0/1.0), latched by the CDR `data_trigger`; updates once per UI |
 
 > **Important**: Even if PSRR functionality is not enabled, the `vdd` port must be connected (SystemC-AMS requires all ports to be connected).
 
@@ -186,10 +188,10 @@ Channel Output → CTLE → VGA → DFE Summer → Sampler → Digital Output
 
 **Key Signal Flow**:
 
-- **Forward path**: `in_p/in_n` → CTLE → VGA → DFE Summer → Sampler → `data_out`
-- **DFE feedback path**: Sampler.data_out (historical decision) → DFE.data_in (tap input)
-- **CDR closed-loop path**: Sampler.data_out → CDR.in → CDR.phase_out → Sampler.phase_offset
-- **DE-TDF bridge path**: Adaption ↔ VGA/DFE/Sampler/CDR (parameter control and feedback)
+- **Forward path**: `in_p/in_n` → CTLE → VGA → DFE Summer → Sampler → `DataStrobeLatchTdf` → `data_out` (clean 1/UI)
+- **DFE feedback path**: Sampler.data_out (scalar 0/1) → DFE Summer.data_in, shifted by the CDR `data_trigger` strobe
+- **CDR closed-loop path**: Sampler.data_out → CDR.in (double); CDR.sampling_trigger → Sampler; CDR.data_trigger → DFE Summer / DfeAdaptTdf / data latch
+- **DE-TDF bridge path**: AdaptionDe ↔ VGA/Sampler(threshold)/CDR (AGC, phase command, Vref command); DfeAdaptTdf ↔ AdaptionDe (statistics, taps)
 
 ### 2.2 Port Definitions (DE Domain - Adaption Module)
 
@@ -199,13 +201,16 @@ The Adaption module serves as the DE domain adaptive control hub, interacting wi
 
 | Port Name | Type | Description |
 |-------|------|------|
-| `phase_error` | double | Phase error from CDR (s or normalized UI) |
-| `amplitude_rms` | double | RMS value from RX amplitude statistics |
-| `error_count` | int | Decision error count from Sampler |
-| `isi_metric` | double | ISI metric (optional, for DFE strategy) |
+| `phase_error` | double | Phase error from CDR `phase_error_de` (s or normalized UI) |
+| `amplitude_rms` | double | Amplitude EMA from the TDF amplitude estimator |
+| `gain_saturated` | bool | VGA saturation flag (AGC upward interlock) |
 | `mode` | int | Operating mode: 0=init, 1=training, 2=data, 3=freeze |
 | `reset` | bool | Global reset signal |
 | `scenario_switch` | double | Scenario switching event (optional) |
+| `stat_N_A` … `stat_Delta` | int/double | DfeAdaptTdf statistics (counts, P_pos/P_neg, C, Delta) |
+| `stat_dfe_state` | int | DFE state machine state (0=STARTUP, 1=ACQUIRE, 2=TRACK) |
+
+> **Removed inputs (2026-10)**: `error_count` and `isi_metric` are no longer part of `AdaptionDe`; the old threshold/DFE paths that consumed them were removed.
 
 #### 2.2.2 Adaption Output Ports
 
@@ -215,12 +220,14 @@ The Adaption module serves as the DE domain adaptive control hub, interacting wi
 | `ctle_zero` | double | CTLE zero frequency (Hz, optional) | CTLE |
 | `ctle_pole` | double | CTLE pole frequency (Hz, optional) | CTLE |
 | `ctle_dc_gain` | double | CTLE DC gain (linear, optional) | CTLE |
-| `dfe_tap1`~`dfe_tap8` | double | DFE tap coefficients (fixed 8 independent ports) | DFE Summer |
-| `sampler_threshold` | double | Sampler threshold (V) | Sampler |
-| `sampler_hysteresis` | double | Sampler hysteresis window (V) | Sampler |
-| `phase_cmd` | double | Phase interpolator command (s) | CDR |
+| `vref_cmd` | double | Vref command (absolute value, V) | ±Vref comparators / DfeAdaptTdf |
+| `sampler_threshold` | double | Sampler threshold (V); fixed default 0.0 | Sampler |
+| `sampler_hysteresis` | double | **Deprecated** fixed value, ignored by Sampler | (port compatibility) |
+| `phase_cmd` | double | Phase interpolator command (s) | CDR (monitoring) |
 | `update_count` | int | Update counter (for diagnostics) | External monitoring |
 | `freeze_flag` | bool | Freeze/rollback status flag | External monitoring |
+
+> **Removed output (2026-10)**: `dfe_tap1`…`dfe_tap8` are no longer driven by AdaptionDe; DFE taps come from `DfeAdaptTdf`.
 
 #### 2.2.3 DE-TDF Bridge Relationship Diagram
 
@@ -276,11 +283,13 @@ struct CdrParams {
 | CTLE | `zeros=[2e9]`, `poles=[30e9]`, `dc_gain=1.5` | Single zero single pole | High-frequency boost, bandwidth limiting |
 | VGA | `zeros=[1e9]`, `poles=[20e9]`, `dc_gain=2.0` | Variable gain | AGC dynamic adjustment |
 | DFE | `taps=[-0.05,-0.02,0.01]`, `mu=1e-4` | 3 taps | Post-cursor ISI cancellation |
-| Sampler | `resolution=0.02`, `hysteresis=0.01` | Fuzzy decision | Metastability modeling |
-| CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI controller | Phase tracking |
-| Adaption | `agc.target=0.4`, `dfe.mu=1e-4`, `safety.freeze_threshold=1000` | Multi-rate scheduling | Adaptive optimization |
+| Sampler | `resolution=0.02`, `threshold=0.0`, `vref_threshold_de` (dynamic) | Fuzzy decision | Metastability modeling, ±Vref comparators |
+| CDR | `kp=0.01`, `ki=1e-4`, `resolution=1e-12` | PI controller | Phase tracking (2 triggers/UI + data_trigger) |
+| Adaption | `agc.target=0.4`, `vref_adapt`, `safety` | Multi-rate scheduling | AGC, CDR PI, Vref command (DFE taps in DfeAdaptTdf) |
 
 #### 2.3.4 Adaption Parameter Details
+
+> **Historical snapshot (pre-2026-10)**: this table still lists the retired threshold-adaptation fields, UI-based scheduling periods and `freeze_threshold`. The current interface is: AGC (`target_amplitude/kp/ki/gain_min/gain_max/rate_limit/initial_gain`), `vref_adapt` (`vref_initial/target_confidence/asymmetry_alert/adapt_alpha`), CDR PI and `safety` (`freeze_on_error/rollback_enable/snapshot_interval`); periods are in **seconds** and must be > 0 (fail-fast). DFE fields configure `DfeAdaptTdf`.
 
 | Sub-structure | Parameter | Default Value | Description |
 |----------|------|--------|------|
@@ -477,10 +486,10 @@ double compute_feedback() {
 
 #### 3.4.1 Phase Detection and Adjustment
 
-1. **Sampler**: Dynamically adjusts sampling moment based on `phase_offset` signal
-2. **CDR**: Detects relationship between data edge and current phase, calculates phase error
-3. **PI Controller**: Updates phase accumulation based on error
-4. **Phase Quantization**: Quantizes according to PAI resolution and outputs to Sampler
+1. **Sampler**: Samples on the CDR `sampling_trigger` and holds between triggers (no `phase_offset` port)
+2. **CDR**: Detects the relationship between data edge and current phase, calculates phase error
+3. **PI Controller**: Updates the PI state once per UI at the data sample
+4. **Trigger Scheduling**: Quantized phase re-schedules the edge/data triggers on the integer step grid; `data_trigger` strobes the DFE/latch path
 
 #### 3.4.2 Bang-Bang Phase Detection Algorithm
 

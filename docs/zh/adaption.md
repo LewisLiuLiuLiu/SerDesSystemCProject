@@ -70,13 +70,15 @@ Adaption 模块的核心设计思想是建立多层次、多速率的自适应�
 
 - **配置驱动设计**：通过 JSON 配置文件管理所有算法参数，支持运行时场景切换与参数重载，便于不同通道与速率场景的快速验证
 
-- **Trace 与诊断**：输出关键信号时间序列（vga_gain、dfe_taps、sampler_threshold、phase_cmd、update_count、freeze_flag），支持后处理分析与回归验证
+- **Trace 与诊断**：输出关键信号时间序列（vga_gain、vref_cmd、sampler_threshold、phase_cmd、update_count、freeze_flag），DFE 抽头轨迹由 DfeAdaptTdf 的 tap*_de 统计输出，支持后处理分析与回归验证
 
 ### 1.3 版本历史
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
 | v0.1 | 2025-10-30 | 初始版本，建立模块框架与四大算法架构（AGC、DFE、阈值、CDR PI），定义多速率调度与冻结/回退机制，提供 JSON 配置示例与使用说明，制定测试验证计划 |
+
+> **2026-10 语义修订注记**：AGC 改为**位置式** PI（`gain = initial_gain + P + I`，积分按增益量程限幅），新增饱和互锁（`gain_saturated` 仅禁上调）与信号存活锁存（启动不误冻结、不盲推增益）；`fast/slow_update_period` 必须 > 0（构造期 fail-fast）。**DFE 抽头自适应已迁至 `DfeAdaptTdf`**（由 CDR 数据频闪驱动），AdaptionDe 只保留单控制器 `vref_cmd`（STARTUP→vref_initial；ACQUIRE→vref*=1+α(C−target)；TRACK 仅 |Delta|>阈值微调）。Sampler 阈值/迟滞**不再自适应**（固定默认值），后文 `dfe_taps`/`sampler_hysteresis` 相关描述为历史记录。下方接口表已同步。
 
 ## 2. 模块接口
 
@@ -88,13 +90,14 @@ Adaption 模块运行于 SystemC DE（Discrete Event）域，通过 `sca_de::sca
 
 | 端口名 | 方向 | 类型 | 说明 |
 |-------|------|------|------|
-| `phase_error` | 输入 | double | 相位误差（CDR 用，单位：秒或归一化 UI），来自 CDR 相位检测器输出 |
-| `amplitude_rms` | 输入 | double | 幅度 RMS 或峰值（AGC 用），来自 RX 幅度统计模块 |
-| `error_count` | 输入 | int | 误码计数或误差累积（阈值自适应/DFE 用），来自 Sampler 判决误差统计 |
-| `isi_metric` | 输入 | double | ISI 指标（可选，用于 DFE 更新策略），反映码间干扰程度 |
+| `phase_error` | 输入 | double | 相位误差（CDR 用，单位：秒或归一化 UI），来自 CDR `phase_error_de` |
+| `amplitude_rms` | 输入 | double | 幅度 EMA（AGC 用），来自 TDF 幅度检测器 |
+| `gain_saturated` | 输入 | bool | VGA 饱和标志（AGC 互锁：仅禁止上调增益） |
 | `mode` | 输入 | int | 运行模式（0=初始化，1=训练，2=数据，3=冻结），来自系统配置控制器 |
 | `reset` | 输入 | bool | 全局复位或参数重置信号，高电平有效 |
 | `scenario_switch` | 输入 | double | 场景切换事件（可选），用于多场景热切换触发 |
+| `stat_N_A` … `stat_Delta` | 输入 | int/double | DfeAdaptTdf 统计量：比较器计数、P_pos/P_neg、联合置信度 C、非对称度 Delta |
+| `stat_dfe_state` | 输入 | int | DfeAdaptTdf 状态机状态（0=STARTUP，1=ACQUIRE，2=TRACK） |
 
 > **重要**：所有输入端口必须连接，即使对应算法未启用（SystemC-AMS 要求所有端口均需连接）。
 
@@ -106,12 +109,14 @@ Adaption 模块运行于 SystemC DE（Discrete Event）域，通过 `sca_de::sca
 | `ctle_zero` | 输出 | double | CTLE 零点频率（Hz，可选），支持在线调整 CTLE 频响特性 |
 | `ctle_pole` | 输出 | double | CTLE 极点频率（Hz，可选），在线调整 CTLE 带宽 |
 | `ctle_dc_gain` | 输出 | double | CTLE 直流增益（线性倍数，可选），在线调整 CTLE 低频增益 |
-| `dfe_taps` | 输出 | vector&lt;double&gt; | DFE 抽头系数数组 [tap1, tap2, ..., tapN]，写入 DFE Summer 模块 |
-| `sampler_threshold` | 输出 | double | 采样阈值（V），写入 Sampler 模块判决比较器 |
-| `sampler_hysteresis` | 输出 | double | 迟滞窗口（V），写入 Sampler 模块抗噪迟滞 |
-| `phase_cmd` | 输出 | double | 相位插值器命令（秒或归一化步长），写入 CDR PI 控制器 |
+| `vref_cmd` | 输出 | double | Vref 命令（绝对值，V），送往 ±Vref 比较器 / `DfeAdaptTdf`（单控制器） |
+| `sampler_threshold` | 输出 | double | 采样判决阈值（V）；固定默认 0.0（不再自适应） |
+| `sampler_hysteresis` | 输出 | double | **已废弃**：固定默认值，当前 Sampler 忽略（仅为端口兼容保留） |
+| `phase_cmd` | 输出 | double | 相位插值器命令（秒），写入 CDR（监视用途；Sampler 为触发驱动） |
 | `update_count` | 输出 | int | 更新次数计数器，用于诊断和性能分析 |
 | `freeze_flag` | 输出 | bool | 冻结/回退状态标志，高电平表示参数更新已暂停 |
+
+> **已移除输出（2026-10）**：AdaptionDe 不再有 `dfe_taps`，DFE 抽头由 `DfeAdaptTdf` 的 `tap1_de`…`tap8_de` 输出。
 
 #### 桥接机制说明
 
@@ -135,6 +140,8 @@ Adaption 模块运行于 SystemC DE（Discrete Event）域，通过 `sca_de::sca
 | `fast_update_period` | double | 2.5e-10 | 快路径更新周期（秒，用于 CDR/阈值，约 10 UI） |
 | `slow_update_period` | double | 2.5e-7 | 慢路径更新周期（秒，用于 AGC/DFE，约 10000 UI） |
 
+> **fail-fast（2026-10）**：两个周期都必须 > 0，否则构造期抛 `std::invalid_argument`（0 会让 `wait()` 死循环，负值/NaN 会时间溢出）。
+
 #### AGC 子结构
 
 自动增益控制参数，通过 PI 控制器动态调整 VGA 增益以维持目标输出幅度。
@@ -150,15 +157,18 @@ Adaption 模块运行于 SystemC DE（Discrete Event）域，通过 `sca_de::sca
 | `rate_limit` | 增益变化速率限制（linear/s），防止过快变化导致不稳定 |
 | `initial_gain` | 初始增益（线性倍数），系统启动时的默认值 |
 
-**工作原理**：
-1. 从 `amplitude_rms` 端口读取当前输出幅度
+**工作原理（位置式 PI，2026-10）**：
+1. 从 `amplitude_rms` 端口读取当前输出幅度；信号存活锁存置位前（幅度曾超过 0.02V）不执行 AGC
 2. 计算幅度误差：`amp_error = target_amplitude - current_amplitude`
-3. PI 控制器更新：`gain = P + I`，其中 `P = kp * amp_error`，`I += ki * amp_error * dt`
-4. 增益饱和钳位：`gain = clamp(gain, gain_min, gain_max)`
-5. 速率限制：防止单次更新增益变化过大
-6. 输出到 `vga_gain` 端口，下一 TDF 周期生效
+3. 若 `gain_saturated` 为高且 `amp_error > 0`，将误差置零（饱和互锁：上调无效，下调仍允许）
+4. 积分更新并限幅：`I += ki * amp_error * slow_update_period`，`I = clamp(I, gain_min - initial_gain, gain_max - initial_gain)`
+5. 位置式输出：`gain = initial_gain + kp * amp_error + I`（不再是 `current_gain + P + I` 的二次积分形式）
+6. 钳位到 `[gain_min, gain_max]`，再按 `rate_limit * slow_update_period` 限速
+7. 输出到 `vga_gain` 端口，下一 TDF 周期生效
 
 #### DFE 子结构
+
+> **2026-10**：DFE 抽头自适应已移至 `DfeAdaptTdf`（TDF 域，Plan A），由 CDR `data_trigger` 频闪驱动（1/UI）。下述参数（`num_taps`、`algorithm`、`mu*`、`leakage`、`initial_taps`、`tap_min/max`、`stats_period`）配置该模块；`freeze_threshold` 字段已不再使用。
 
 DFE 抽头更新参数，使用自适应滤波算法在线优化 DFE 抽头系数以抑制码间干扰（ISI）。
 
@@ -166,25 +176,25 @@ DFE 抽头更新参数，使用自适应滤波算法在线优化 DFE 抽头系�
 |------|------|
 | `enabled` | 启用 DFE 在线更新 |
 | `num_taps` | 抽头数量（通常 3‑8），决定 DFE 可抑制的 ISI 深度 |
-| `algorithm` | 更新算法："lms" \| "sign-lms" \| "nlms"，选择不同的自适应策略 |
-| `mu` | 步长系数（LMS/Sign‑LMS），控制收敛速度与稳定性权衡 |
+| `algorithm` | 更新算法："sign-lms"（当前实现） |
+| `mu` | 步长系数（启动步长的历史别名） |
+| `mu_startup` / `mu_acquire` / `mu_track` | 状态机各阶段的可变步长 |
 | `leakage` | 泄漏系数（0‑1），防止噪声累积导致抽头发散 |
 | `initial_taps` | 初始抽头系数数组 [tap1, tap2, ..., tapN]，系统启动时的默认值 |
 | `tap_min` | 单个抽头最小值（饱和约束），防止抽头系数过小 |
 | `tap_max` | 单个抽头最大值（饱和约束），防止抽头系数过大 |
-| `freeze_threshold` | 误差超过此阈值时冻结更新，避免异常噪声干扰 |
+| `stats_period` | C/Delta 统计窗口（UI） |
 
-**工作原理**（以 Sign-LMS 为例）：
-1. 从 `error_count` 端口或专用误差端口读取当前判决误差 `e(n)`
-2. 对每个抽头 `i`：
-   - 获取延迟 `i` 个符号的判决值 `x[n-i]`
-   - Sign-LMS 更新：`tap[i] = tap[i] + mu * sign(e(n)) * sign(x[n-i])`
-   - 泄露处理：`tap[i] = (1 - leakage) * tap[i]`
-   - 饱和钳位：`tap[i] = clamp(tap[i], tap_min, tap_max)`
-3. 冻结条件：若 `|e(n)| > freeze_threshold`，暂停所有抽头更新
-4. 输出到 `dfe_taps` 数组端口，DFE Summer 在下一周期使用新系数
+**工作原理（Sign-LMS，位于 DfeAdaptTdf）**：
+1. 每个 CDR 数据频闪捕获 d_k、s_k（+Vref）、s'_k（−Vref）比较器判决
+2. 在 `stats_period` 内累计 N_A/N_B/N_C/N_D，导出 `P_pos`、`P_neg`、`C`、`Delta`
+3. 对每个抽头 `i`：`tap[i] += mu_state * sign(e_k) * sign(x[n-i])`，随后泄露并钳位到 `[tap_min, tap_max]`
+4. `stat_state`/`stat_mu` 在状态机更新**之后**发布；首次 processing 发布确定的 DE 初值
+5. 抽头经 `tap1_de`…`tap8_de` 输出到 DFE Summer
 
-#### 阈值自适应子结构
+#### 阈值自适应子结构（已移除，2026-10）
+
+Sampler 阈值自适应已从 AdaptionDe **移除**：`sampler_threshold` 为固定默认值（0.0），`sampler_hysteresis` 为固定且被忽略的值。以下字段与流程仅作设计历史保留，当前无对应算法。
 
 采样阈值自适应参数，通过动态调整判决阈值和迟滞窗口优化误码率性能。
 
@@ -203,6 +213,18 @@ DFE 抽头更新参数，使用自适应滤波算法在线优化 DFE 抽头系�
 3. 梯度下降或二分查找策略调整阈值，向误码减小方向移动
 4. 根据噪声强度动态调整迟滞窗口，平衡抗噪与灵敏度
 5. 输出到 `sampler_threshold` 和 `sampler_hysteresis` 端口
+
+#### Vref 命令子结构（单控制器，2026-10）
+
+`vref_adapt` 是**唯一**的 Vref 控制器（`DfeAdaptTdf` 不再自闭环）。它跟随 `stat_dfe_state` 发布的 DFE 状态机：
+
+| 状态 | 动作 |
+|------|------|
+| STARTUP (0) | `vref_cmd = vref_initial` |
+| ACQUIRE (1) | `vref_cmd *= 1 + adapt_alpha * (C - target_confidence)`，钳位到 [0.01, 0.5] V |
+| TRACK (2) | 仅当 `|Delta| > asymmetry_alert`：`vref_cmd -= 0.1 * adapt_alpha * Delta`，并钳位 |
+
+命令为正值幅度，±Vref 比较器据此得到 +Vref 与 −Vref（`threshold_invert`）。
 
 #### CDR PI 子结构
 
@@ -237,7 +259,7 @@ CDR PI 控制器参数，通过相位插值器命令调整采样相位，实现�
 | `error_burst_threshold` | 误码暴涨阈值（触发冻结/回退），异常检测门限 |
 
 **工作原理**：
-1. **冻结策略**：检测误码暴涨（`error_count > error_burst_threshold`）、幅度异常、相位失锁等条件，暂停所有参数更新
+1. **冻结策略**：在信号存活锁存**之后**检测幅度消失（`amp < 0.01`）、幅度过载（`amp > 2.0`）或相位误差越界（`|phase_error| > 2 × phase_range`），暂停所有参数更新。启动阶段不会误冻结；`error_burst_threshold` 当前实现未使用。
 2. **快照保存**：每隔 `snapshot_interval` 保存一次当前参数（增益、抽头、阈值、相位）到历史缓冲
 3. **回退策略**：冻结持续时间超过阈值或关键指标持续劣化时，恢复至上次稳定快照参数，重新启动训练
 4. **历史记录**：维护最近 N 次更新的参数与指标历史，输出到 trace（`update_count`、`freeze_flag`）用于诊断

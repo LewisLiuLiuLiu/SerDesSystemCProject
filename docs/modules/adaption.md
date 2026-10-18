@@ -7,6 +7,8 @@
 **Current Version**: v0.1 (2025-10-30)  
 **Status**: In Development
 
+> **Semantics revision note (2026-10)**: AGC is a **positional** PI (`gain = initial_gain + P + I`, integral clamped to the gain range) with a saturation interlock (`gain_saturated` blocks upward correction only) and a signal-alive latch (no amplitude freeze / no blind gain ramp-up before the signal is established). `fast_update_period` / `slow_update_period` must be > 0 (fail-fast at construction). **DFE tap adaptation moved to `DfeAdaptTdf`** (driven by the CDR data strobe); AdaptionDe only generates the single-controller `vref_cmd` (`STARTUP → vref_initial`, `ACQUIRE → vref *= 1+α(C−target)`, `TRACK → adjust only when |Delta| > threshold`). Sampler threshold/hysteresis are **no longer adapted** (fixed defaults), and the `dfe_taps`/`sampler_hysteresis` outputs described in later chapters are historical. The interface tables below are synced.
+
 ---
 
 ## 1. Overview
@@ -59,7 +61,7 @@ The core design philosophy of the Adaption module is to establish a multi-level,
 
 ### 1.2 Core Features
 
-- **Four Major Adaptive Algorithms**: Integrated AGC (Automatic Gain Control), DFE tap updates (LMS/Sign-LMS/NLMS), CDR PI controller, and threshold adaptation algorithms, covering key link parameter optimization
+- **Three On-Chip Adaptive Loops + DFE Engine**: AGC, CDR PI controller and Vref command generation run in AdaptionDe; DFE tap updates (Sign-LMS) are provided by `DfeAdaptTdf` in the TDF domain. Sampler threshold adaptation has been removed.
 
 - **Multi-Rate Scheduling Architecture**: Supports three scheduling modes: event-driven, periodic-driven, and multi-rate. Fast paths (every 10-100 UI) and slow paths (every 1000-10000 UI) run in parallel, optimizing computational efficiency
 
@@ -89,13 +91,14 @@ The Adaption module operates in the SystemC DE (Discrete Event) domain and commu
 
 | Port Name | Direction | Type | Description |
 |-----------|-----------|------|-------------|
-| `phase_error` | Input | double | Phase error (for CDR, unit: seconds or normalized UI), from CDR phase detector output |
-| `amplitude_rms` | Input | double | Amplitude RMS or peak (for AGC), from RX amplitude statistics module |
-| `error_count` | Input | int | Error count or error accumulation (for threshold adaptation/DFE), from Sampler decision error statistics |
-| `isi_metric` | Input | double | ISI metric (optional, for DFE update strategy), reflecting inter-symbol interference degree |
+| `phase_error` | Input | double | Phase error (for CDR, unit: seconds or normalized UI), from CDR `phase_error_de` |
+| `amplitude_rms` | Input | double | Amplitude EMA (for AGC), from the TDF amplitude estimator |
+| `gain_saturated` | Input | bool | VGA saturation flag (AGC interlock: block upward gain correction only) |
 | `mode` | Input | int | Operating mode (0=initialization, 1=training, 2=data, 3=freeze), from system configuration controller |
 | `reset` | Input | bool | Global reset or parameter reset signal, active high |
 | `scenario_switch` | Input | double | Scenario switching event (optional), for triggering multi-scenario hot-swap |
+| `stat_N_A` … `stat_Delta` | Input | int/double | DfeAdaptTdf statistics: comparator counts, P_pos/P_neg, joint confidence C, asymmetry Delta |
+| `stat_dfe_state` | Input | int | DfeAdaptTdf state machine state (0=STARTUP, 1=ACQUIRE, 2=TRACK) |
 
 > **Important**: All input ports must be connected, even if the corresponding algorithm is not enabled (SystemC-AMS requires all ports to be connected).
 
@@ -107,12 +110,14 @@ The Adaption module operates in the SystemC DE (Discrete Event) domain and commu
 | `ctle_zero` | Output | double | CTLE zero frequency (Hz, optional), supports online adjustment of CTLE frequency response characteristics |
 | `ctle_pole` | Output | double | CTLE pole frequency (Hz, optional), online adjustment of CTLE bandwidth |
 | `ctle_dc_gain` | Output | double | CTLE DC gain (linear multiplier, optional), online adjustment of CTLE low-frequency gain |
-| `dfe_taps` | Output | vector&lt;double&gt; | DFE tap coefficient array [tap1, tap2, ..., tapN], written to DFE Summer module |
-| `sampler_threshold` | Output | double | Sampling threshold (V), written to Sampler module decision comparator |
-| `sampler_hysteresis` | Output | double | Hysteresis window (V), written to Sampler module for noise immunity |
-| `phase_cmd` | Output | double | Phase interpolator command (seconds or normalized step), written to CDR PI controller |
+| `vref_cmd` | Output | double | Vref command (absolute value, V) for the ±Vref comparators / `DfeAdaptTdf` (single controller) |
+| `sampler_threshold` | Output | double | Sampler decision threshold (V); fixed default 0.0 (no threshold adaptation) |
+| `sampler_hysteresis` | Output | double | **Deprecated**: fixed default, ignored by the current sampler (kept for port compatibility) |
+| `phase_cmd` | Output | double | Phase interpolator command (seconds), written to CDR (monitoring; sampler is trigger-driven) |
 | `update_count` | Output | int | Update counter, for diagnostics and performance analysis |
 | `freeze_flag` | Output | bool | Freeze/rollback status flag, high indicates parameter updates are paused |
+
+> **Removed outputs (2026-10)**: `dfe_taps` no longer exists in AdaptionDe — DFE taps are produced by `DfeAdaptTdf` (`tap1_de`…`tap8_de`).
 
 #### Bridge Mechanism Description
 
@@ -136,6 +141,8 @@ The Adaption module operates in the SystemC DE (Discrete Event) domain and commu
 | `fast_update_period` | double | 2.5e-10 | Fast path update period (seconds, for CDR/Threshold, ~10 UI) |
 | `slow_update_period` | double | 2.5e-7 | Slow path update period (seconds, for AGC/DFE, ~10000 UI) |
 
+> **Fail-fast (2026-10)**: both periods must be > 0; the constructor throws `std::invalid_argument` otherwise (0 would spin `wait()` forever, negative/NaN would overflow the time representation).
+
 #### AGC Sub-Structure
 
 Automatic Gain Control parameters, dynamically adjusting VGA gain through PI controller to maintain target output amplitude.
@@ -151,15 +158,18 @@ Automatic Gain Control parameters, dynamically adjusting VGA gain through PI con
 | `rate_limit` | Gain change rate limit (linear/s), prevents instability from too-fast changes |
 | `initial_gain` | Initial gain (linear multiplier), default value at system startup |
 
-**Working Principle**:
-1. Read current output amplitude from `amplitude_rms` port
+**Working Principle (positional PI, 2026-10)**:
+1. Read current output amplitude from `amplitude_rms` port; skip AGC until the signal-alive latch is set (amplitude ever exceeded 0.02 V)
 2. Calculate amplitude error: `amp_error = target_amplitude - current_amplitude`
-3. PI controller update: `gain = P + I`, where `P = kp * amp_error`, `I += ki * amp_error * dt`
-4. Gain saturation clamping: `gain = clamp(gain, gain_min, gain_max)`
-5. Rate limiting: prevents excessive gain change in single update
-6. Output to `vga_gain` port, takes effect in next TDF cycle
+3. If `gain_saturated` is high and `amp_error > 0`, zero the error (saturation interlock: upward corrections are useless, downward ones still allowed)
+4. Integral update with clamp: `I += ki * amp_error * slow_update_period`, `I = clamp(I, gain_min - initial_gain, gain_max - initial_gain)`
+5. Positional output: `gain = initial_gain + kp * amp_error + I` (not `current_gain + P + I`, which double-integrated)
+6. Clamp to `[gain_min, gain_max]`, then rate-limit to `rate_limit * slow_update_period`
+7. Output to `vga_gain` port, takes effect in next TDF cycle
 
 #### DFE Sub-Structure
+
+> **2026-10**: DFE tap adaptation is implemented in `DfeAdaptTdf` (TDF domain, Plan A), driven by the CDR `data_trigger` strobe (1/UI). The parameters below (`num_taps`, `algorithm`, `mu*`, `leakage`, `initial_taps`, `tap_min/max`, `stats_period`) configure that module. The legacy `freeze_threshold` field is unused by the current implementation.
 
 DFE tap update parameters, using adaptive filtering algorithms to online optimize DFE tap coefficients to suppress inter-symbol interference (ISI).
 
@@ -167,25 +177,25 @@ DFE tap update parameters, using adaptive filtering algorithms to online optimiz
 |-----------|-------------|
 | `enabled` | Enable DFE online update |
 | `num_taps` | Number of taps (usually 3-8), determines DFE's ISI suppression depth |
-| `algorithm` | Update algorithm: "lms" \| "sign-lms" \| "nlms", selecting different adaptive strategies |
-| `mu` | Step size coefficient (LMS/Sign-LMS), controls convergence speed vs stability trade-off |
+| `algorithm` | Update algorithm: "sign-lms" (current implementation) |
+| `mu` | Step size coefficient (legacy alias for the startup step) |
+| `mu_startup` / `mu_acquire` / `mu_track` | Variable step size per state-machine phase |
 | `leakage` | Leakage coefficient (0-1), prevents noise accumulation causing tap divergence |
 | `initial_taps` | Initial tap coefficient array [tap1, tap2, ..., tapN], default values at system startup |
 | `tap_min` | Single tap minimum value (saturation constraint), prevents tap coefficient from being too small |
 | `tap_max` | Single tap maximum value (saturation constraint), prevents tap coefficient from being too large |
-| `freeze_threshold` | Error exceeding this threshold freezes updates, avoiding abnormal noise interference |
+| `stats_period` | Statistics accumulation window (UI) for C/Delta metrics |
 
-**Working Principle** (Sign-LMS example):
-1. Read current decision error `e(n)` from `error_count` port or dedicated error port
-2. For each tap `i`:
-   - Get decision value delayed by `i` symbols `x[n-i]`
-   - Sign-LMS update: `tap[i] = tap[i] + mu * sign(e(n)) * sign(x[n-i])`
-   - Leakage processing: `tap[i] = (1 - leakage) * tap[i]`
-   - Saturation clamping: `tap[i] = clamp(tap[i], tap_min, tap_max]`
-3. Freeze condition: If `|e(n)| > freeze_threshold`, pause all tap updates
-4. Output to `dfe_taps` array port, DFE Summer uses new coefficients in next cycle
+**Working Principle** (Sign-LMS, in DfeAdaptTdf):
+1. On each CDR data strobe, capture d_k, s_k (+Vref) and s'_k (−Vref) comparator decisions
+2. Accumulate N_A/N_B/N_C/N_D over `stats_period`; derive `P_pos`, `P_neg`, `C`, `Delta`
+3. For each tap `i`: `tap[i] += mu_state * sign(e_k) * sign(x[n-i])`, then leak and clamp to `[tap_min, tap_max]`
+4. `stat_state`/`stat_mu` are published **after** the state-machine update; the first processing publishes deterministic DE initial values
+5. Taps are output on `tap1_de`…`tap8_de` to the DFE Summer
 
-#### Threshold Adaptation Sub-Structure
+#### Threshold Adaptation Sub-Structure (removed, 2026-10)
+
+Sampler threshold adaptation was **removed** from AdaptionDe: `sampler_threshold` is a fixed default (0.0) and `sampler_hysteresis` is a fixed, ignored value. The legacy fields below no longer exist as an active algorithm; the subsections are kept only as design history.
 
 Sampling threshold adaptation parameters, optimizing bit error rate performance through dynamically adjusting decision threshold and hysteresis window.
 
@@ -204,6 +214,18 @@ Sampling threshold adaptation parameters, optimizing bit error rate performance 
 3. Gradient descent or binary search strategy adjusts threshold, moving toward direction of decreasing errors
 4. Dynamically adjust hysteresis window based on noise intensity, balancing noise immunity and sensitivity
 5. Output to `sampler_threshold` and `sampler_hysteresis` ports
+
+#### Vref Command Sub-Structure (single controller, 2026-10)
+
+`vref_adapt` is the **only** Vref controller (`DfeAdaptTdf` no longer closes its own Vref loop). It follows the DFE state machine published on `stat_dfe_state`:
+
+| State | Action |
+|-------|--------|
+| STARTUP (0) | `vref_cmd = vref_initial` |
+| ACQUIRE (1) | `vref_cmd *= 1 + adapt_alpha * (C - target_confidence)`, clamped to [0.01, 0.5] V |
+| TRACK (2) | Only when `|Delta| > asymmetry_alert`: `vref_cmd -= 0.1 * adapt_alpha * Delta`, clamped |
+
+The command is a positive magnitude; the ±Vref comparators map it to +Vref and −Vref (`threshold_invert`).
 
 #### CDR PI Sub-Structure
 
@@ -238,7 +260,7 @@ Safety supervision mechanism parameters, providing robustness guarantees such as
 | `error_burst_threshold` | Error burst threshold (triggers freeze/rollback), anomaly detection threshold |
 
 **Working Principle**:
-1. **Freeze Strategy**: Detect error bursts (`error_count > error_burst_threshold`), amplitude anomalies, phase unlock conditions, pause all parameter updates
+1. **Freeze Strategy**: Detect amplitude loss **after** the signal-alive latch (`amp < 0.01`), amplitude overload (`amp > 2.0`), or phase error out of range (`|phase_error| > 2 × phase_range`), then pause all parameter updates. Startup is excluded (the latch prevents false freezes); `error_burst_threshold` is not used by the current implementation.
 2. **Snapshot Save**: Save current parameters (gain, taps, threshold, phase) to history buffer every `snapshot_interval`
 3. **Rollback Strategy**: When freeze duration exceeds threshold or key metrics continue to degrade, restore to last stable snapshot parameters and restart training
 4. **History Record**: Maintain history of recent N updates' parameters and metrics, output to trace (`update_count`, `freeze_flag`) for diagnostics

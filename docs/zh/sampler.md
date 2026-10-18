@@ -11,6 +11,7 @@
 > 1. 新增 `vref_threshold_de`（DE 域动态门限）：AdaptionDe.vref_cmd → ±Vref 比较器；`threshold_invert` 用于 −Vref 极性；未驱动（≤0）时保持静态 `threshold`。
 > 2. 模糊判决区修正为 **`|v_diff − thr| < resolution`**（围绕有效门限；旧实现围绕 0，对 ±Vref 比较器是错的）。
 > 3. `hysteresis` 参数**已废弃（忽略）**：真实数据 slicer 没有刻意的 Schmitt 迟滞，残余记忆为 mV 级动态失调（归入 offset/噪声）；参数保留仅为配置兼容。文中"迟滞效应"相关表述为历史设计记录。
+> 4. 采样为**纯触发驱动**：仅在 CDR `sampling_trigger` 为高时采样、否则保持；`phase_offset` 端口已删除，`clk_sample` 仅为兼容保留且不再被读取。2.3/2.4/3.3 节为历史设计记录。
 
 ---
 
@@ -23,24 +24,24 @@
 采样器的核心设计思想是基于比较器架构的阈值判决，结合CDR（Clock and Data Recovery）提供的动态相位信息实现精确的数据恢复：
 
 - **差分比较**：对互补的模拟输入信号进行差分运算，获得差分电压Vdiff
-- **动态采样时刻**：接收CDR模块输出的采样时钟或相位偏移信号，动态调整采样位置
-- **多级判决机制**：结合分辨率阈值和迟滞效应，实现鲁棒的判决逻辑
+- **触发驱动采样**：在 CDR `sampling_trigger`（边沿+数据两相）为高时采样并保持；无时钟边沿检测或相位偏移累加
+- **动态比较器门限**：静态 `threshold` 或 AdaptionDe 下发的动态 Vref（`vref_threshold_de`），可为 −Vref 比较器取反
 - **非理想效应建模**：集成偏移、噪声、jitter等实际器件的非理想特性
 
 传递函数的数学形式为：
 ```
-data_out = f(Vdiff, phase_offset, parameters)
-其中：Vdiff = (inp - inn) + offset + noise
+data_out = f(Vdiff, trigger, parameters)
+其中：Vdiff = (inp - inn) + offset + noise，判决门限 thr = threshold 或 ±vref_cmd
 ```
 
 ### 1.2 核心特性
 
-- **CDR集成接口**：支持时钟驱动和相位信号驱动两种模式
-- **动态采样时刻**：实时响应CDR相位调整，优化采样点位置
-- **模糊判决机制**：分辨率阈值内的随机判决，模拟比较器亚稳态
-- **施密特触发器效应**：迟滞功能避免信号抖动引起的判决错误
-- **参数验证机制**：hysteresis与resolution参数的冲突检测和错误处理
+- **CDR集成接口**：在 CDR `sampling_trigger`（每 UI 2 个）上采样，触发之间保持上一判决
+- **动态采样时刻**：触发时刻由 CDR 按整数步格调度，Sampler 自身不含相位累加器
+- **模糊判决机制**：在 `|v − thr| < resolution` 内随机判决，模拟比较器亚稳态
+- **动态 Vref 门限**：`vref_threshold_de` 覆盖静态门限（正命令值，`threshold_invert` 选择 −Vref）
 - **可配置非理想效应**：偏移、噪声、jitter的独立建模和控制
+- **迟滞（已废弃）**：2026-10 起移出判决路径，`hysteresis` 参数被忽略，仅为配置兼容保留
 
 ### 1.3 版本历史
 
@@ -60,12 +61,13 @@ data_out = f(Vdiff, phase_offset, parameters)
 |-------|------|------|------|
 | `inp` | 输入 | double | 差分输入正端 |
 | `inn` | 输入 | double | 差分输入负端 |
-| `clk_sample` | 输入 | double | CDR采样时钟（可选） |
-| `phase_offset` | 输入 | double | CDR相位偏移（可选） |
-| `data_out` | 输出 | int | 数字比特输出（0或1） |
+| `clk_sample` | 输入 | double | **历史遗留**时钟端口（仅为连接兼容保留，`processing()` 不再读取） |
+| `sampling_trigger` | 输入 | bool | CDR 采样触发（每 UI 2 个：边沿+数据）；高电平采样，否则保持 |
+| `vref_threshold_de` | 输入 | double（DE桥） | 来自 `AdaptionDe.vref_cmd` 的动态判决门限（V）；>0 时覆盖 `threshold`，`threshold_invert` 选择 −Vref |
+| `data_out` | 输出 | double | 数字比特输出（0.0/1.0），触发之间保持 |
 | `data_out_de` | 输出 | bool | DE域输出（可选） |
 
-> **重要**：`clk_sample`和`phase_offset`端口根据`phase_source`参数选择其一连接，SystemC-AMS要求所有端口均需连接。
+> **重要**：`sampling_trigger` 与 `vref_threshold_de` 必须连接（SystemC-AMS要求所有端口均需连接）。`clk_sample` 仅因现有测试平台仍绑定而保留，对采样无影响。
 
 ### 2.3 端口数据类型详解
 
@@ -166,7 +168,7 @@ phase_offset信号值：
 | `phase_source` | string | "clock" | 相位来源：clock/phase |
 | `threshold` | double | 0.0 | 判决阈值（V，默认为0V） |
 | `resolution` | double | 0.02 | 分辨率阈值（V，模糊判决区半宽） |
-| `hysteresis` | double | 0.01 | 迟滞阈值（V，施密特触发器效应；须小于 resolution） |
+| `hysteresis` | double | 0.01 | **已废弃（忽略，2026-10）**：不参与判决，也不再校验必须小于 `resolution`；仅为配置兼容保留 |
 
 #### 偏移配置子结构
 
@@ -230,7 +232,7 @@ t_sample = t_nominal + phase_offset + sample_delay
 采样器模块的`processing()`方法采用严格的多步骤流水线处理架构，确保判决逻辑的正确性和可维护性：
 
 ```
-输入读取 → 差分计算 → 偏移注入 → 噪声注入 → 相位调整 → 判决逻辑 → 输出生成
+输入读取 → 差分计算 → 偏移注入 → 噪声注入 → 触发/门限选择 → 判决逻辑 → 输出生成
 ```
 
 **步骤1-输入读取**：从差分输入端口读取信号，计算差分分量 `Vdiff = inp - inn` 和共模分量 `Vcm = 0.5*(inp + inn)`。
@@ -246,13 +248,13 @@ noise_sample ~ N(0, noise.sigma²)
 ```
 该噪声将叠加到差分信号上，构成器件级的热噪声和输入参考噪声建模。
 
-**步骤4-相位调整**：根据`phase_source`选择时钟采样或相位偏移模式，计算实际采样时刻。
+**步骤4-触发与门限选择**：整条流水线仅在 `sampling_trigger` 为高时执行；否则保持上一判决。有效门限为 `threshold`，当 `vref_threshold_de` 命令值 >0 时覆盖（`thr = threshold_invert ? -vref_cmd : vref_cmd`）。
 
-> **注意**：`clk_sample`和`phase_offset`端口在当前版本中为预留接口，尚未在`processing()`函数中实现实际读取和使用逻辑。相位调整功能将在后续版本中完善。
+> **注意**：`clk_sample` 与 `phase_offset` 为历史接口；`phase_offset` 已删除，采样时刻完全由 CDR `sampling_trigger` 决定。2.3/2.4 节为历史记录。
 
 **步骤5-判决逻辑应用**：
 - 若`resolution = 0`：标准阈值判决
-- 若`resolution > 0`：模糊判决机制
+- 若`resolution > 0`：围绕有效门限的模糊判决机制
 
 **步骤6-输出生成**：将判决结果转换为数字输出，支持TDF和DE两种域。
 
@@ -260,9 +262,9 @@ noise_sample ~ N(0, noise.sigma²)
 
 综合上述流程，采样器的输入到输出传递函数可以表示为：
 ```
-data_out = f(Vdiff, phase_offset, parameters)
+data_out = f(Vdiff, trigger, parameters)
 其中：Vdiff = (inp - inn) + offset.value + noise_sample
-判决阈值：V_th = threshold
+判决阈值：V_th = threshold 或 ±vref_cmd（动态）
 ```
 这一等效关系对应第1章中提到的设计原理，并为后续的BER分析提供了基础。
 
@@ -272,45 +274,38 @@ data_out = f(Vdiff, phase_offset, parameters)
 
 #### 3.2.1 标准判决机制（resolution = 0）
 
-采用双阈值迟滞判决，实现施密特触发器效应：
+采用单门限比较器，无迟滞（2026-10：Schmitt 死区已移除）：
 
 ```
-阈值定义：
-- threshold_high = threshold + hysteresis/2
-- threshold_low = threshold - hysteresis/2
-
 判决逻辑：
-if (Vdiff > threshold_high):
-    output = 1
-elif (Vdiff < threshold_low):
-    output = 0
-else:
-    output = previous_output  // 迟滞区：保持状态
+output = (Vdiff > thr) ? 1 : 0     // thr = 静态 threshold 或动态 Vref
 ```
 
 #### 3.2.2 模糊判决机制（resolution > 0）
 
-引入模糊判决区，模拟比较器的亚稳态行为：
+引入**围绕有效门限**的模糊判决区，模拟比较器的亚稳态行为：
 
 ```
 决策区域划分：
-┌─────────────────────────────────┐
-│  Vdiff >= +resolution  → 1      │  确定区（高）
-├─────────────────────────────────┤
-│  |Vdiff| < resolution  → 随机   │  模糊区
-├─────────────────────────────────┤
-│  Vdiff <= -resolution  → 0      │  确定区（低）
-└─────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Vdiff - thr >= +resolution  → 1         │  确定区（高）
+├──────────────────────────────────────────┤
+│  |Vdiff - thr| < resolution  → 随机      │  模糊区
+├──────────────────────────────────────────┤
+│  Vdiff - thr <= -resolution  → 0         │  确定区（低）
+└──────────────────────────────────────────┘
 
 判决算法：
-if (abs(Vdiff) >= resolution):
-    output = (Vdiff > 0) ? 1 : 0
+if (abs(Vdiff - thr) >= resolution):
+    output = (Vdiff > thr) ? 1 : 0
 else:
     // 模糊区：随机判决（Bernoulli分布）
     output = random_bernoulli(0.5, seed)
 ```
 
 ### 3.3 参数验证与错误处理机制
+
+> **2026-10 说明**：`hysteresis >= resolution` 冲突校验已随迟滞一起**移除**。构造期仅保留 `phase_source ∈ {"clock","phase"}` 校验（接口兼容）。以下小节为已退役校验流程的历史设计记录。
 
 为确保仿真结果的有效性，采样器模块实现了严格的参数验证机制。一旦参数设置不合理（如 `hysteresis ≥ resolution`），后续基于这些参数计算的BER将没有物理意义，因此采用强制终止策略以避免误导性结果。
 

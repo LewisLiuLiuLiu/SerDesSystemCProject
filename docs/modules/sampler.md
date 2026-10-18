@@ -7,6 +7,8 @@
 **Current Version**: v0.3 (2025-12-07)  
 **Status**: Production Ready
 
+> **Semantics revision note (2026-10)**: the sampler is a pure **trigger-driven sample-and-hold** slicer. It samples only when `sampling_trigger` (from CDR) is high and holds otherwise; `clk_sample` is a legacy port that is no longer read and `phase_offset` no longer exists. The decision threshold is either the static `threshold` or the dynamic `vref_threshold_de` (from `AdaptionDe.vref_cmd`, with `threshold_invert` selecting −Vref). The fuzzy zone is `|v − thr| < resolution` (not `|v|`). `hysteresis` is **deprecated and ignored** (data slicers have no Schmitt dead-band) and is no longer validated against `resolution`. Sections 2.3, 2.4 and 3.3 below are retained as historical design notes and no longer describe the implementation.
+
 ---
 
 ## 1. Overview
@@ -18,24 +20,24 @@ The Sampler is a key decision module in the SerDes receiver, whose primary funct
 The core design concept of the sampler is threshold decision based on a comparator architecture, combined with dynamic phase information provided by CDR (Clock and Data Recovery) to achieve precise data recovery:
 
 - **Differential Comparison**: Performs differential operation on complementary analog input signals to obtain differential voltage Vdiff
-- **Dynamic Sampling Moment**: Receives sampling clock or phase offset signals output by the CDR module to dynamically adjust the sampling position
-- **Multi-level Decision Mechanism**: Combines resolution threshold and hysteresis effects to achieve robust decision logic
+- **Trigger-Driven Sampling**: Samples and holds on the CDR `sampling_trigger` (edge + data phases); no clock-edge detection or phase-offset accumulation
+- **Dynamic Comparator Threshold**: Static `threshold` or dynamic Vref from AdaptionDe (`vref_threshold_de`), with optional inversion for the −Vref comparator
 - **Non-ideal Effect Modeling**: Integrates non-ideal characteristics of actual devices such as offset, noise, and jitter
 
 The mathematical form of the transfer function is:
 ```
-data_out = f(Vdiff, phase_offset, parameters)
-where: Vdiff = (inp - inn) + offset + noise
+data_out = f(Vdiff, trigger, parameters)
+where: Vdiff = (inp - inn) + offset + noise,  decision threshold thr = threshold or ±vref_cmd
 ```
 
 ### 1.2 Core Features
 
-- **CDR Integration Interface**: Supports both clock-driven and phase-signal-driven modes
-- **Dynamic Sampling Moment**: Real-time response to CDR phase adjustments to optimize sampling point position
-- **Fuzzy Decision Mechanism**: Random decision within the resolution threshold, simulating comparator metastability
-- **Schmitt Trigger Effect**: Hysteresis function avoids decision errors caused by signal jitter
-- **Parameter Validation Mechanism**: Conflict detection and error handling for hysteresis and resolution parameters
+- **CDR Integration Interface**: Samples on the CDR `sampling_trigger` (2 per UI); holds the last value between triggers
+- **Dynamic Sampling Moment**: Trigger instants are scheduled by the CDR on the integer step grid; the sampler itself has no phase accumulator
+- **Fuzzy Decision Mechanism**: Random decision within `|v − thr| < resolution`, simulating comparator metastability
+- **Dynamic Vref Threshold**: `vref_threshold_de` overrides the static threshold (positive command, `threshold_invert` selects −Vref)
 - **Configurable Non-ideal Effects**: Independent modeling and control of offset, noise, and jitter
+- **Hysteresis (deprecated)**: removed from the decision path in 2026-10; the `hysteresis` parameter is ignored and kept only for configuration compatibility
 
 ### 1.3 Version History
 
@@ -55,12 +57,13 @@ where: Vdiff = (inp - inn) + offset + noise
 |-----------|-----------|------|-------------|
 | `inp` | Input | double | Differential input positive terminal |
 | `inn` | Input | double | Differential input negative terminal |
-| `clk_sample` | Input | double | CDR sampling clock (optional) |
-| `phase_offset` | Input | double | CDR phase offset (optional) |
-| `data_out` | Output | int | Digital bit output (0 or 1) |
+| `clk_sample` | Input | double | **Legacy** clock port (kept for connection compatibility; not read by `processing()`) |
+| `sampling_trigger` | Input | bool | CDR sampling trigger (2 per UI: edge + data); sample on high, hold otherwise |
+| `vref_threshold_de` | Input | double (DE bridge) | Dynamic decision threshold from `AdaptionDe.vref_cmd` (V); >0 overrides `threshold`, `threshold_invert` selects −Vref |
+| `data_out` | Output | double | Digital bit output (0.0/1.0), held between triggers |
 | `data_out_de` | Output | bool | DE domain output (optional) |
 
-> **Important**: `clk_sample` and `phase_offset` ports are connected based on the `phase_source` parameter selection. SystemC-AMS requires all ports to be connected.
+> **Important**: `sampling_trigger` and `vref_threshold_de` must be connected (SystemC-AMS requires all ports to be connected). `clk_sample` is retained only because existing testbenches still bind it; it has no effect on sampling.
 
 ### 2.3 Port Data Type Details
 
@@ -161,7 +164,7 @@ phase_offset signal values:
 | `phase_source` | string | "clock" | Phase source: clock/phase |
 | `threshold` | double | 0.0 | Decision threshold (V, default is 0V) |
 | `resolution` | double | 0.02 | Resolution threshold (V, fuzzy decision zone half-width) |
-| `hysteresis` | double | 0.01 | Hysteresis threshold (V, Schmitt trigger effect; must be < resolution) |
+| `hysteresis` | double | 0.01 | **DEPRECATED (ignored, 2026-10)**: not used in the decision path and not validated against `resolution`; kept for config compatibility only |
 
 #### Offset Configuration Sub-structure
 
@@ -241,13 +244,13 @@ noise_sample ~ N(0, noise.sigma²)
 ```
 This noise is superimposed on the differential signal, constituting device-level thermal noise and input-referred noise modeling.
 
-**Step 4 - Phase Adjustment**: Select clock sampling or phase offset mode based on `phase_source`, and calculate the actual sampling moment.
+**Step 4 - Trigger and Threshold Selection**: The whole pipeline runs only when `sampling_trigger` is high; otherwise the previous decision is held. The effective threshold is `threshold`, overridden by `vref_threshold_de` when the command is > 0 (`thr = threshold_invert ? -vref_cmd : vref_cmd`).
 
-> **Note**: `clk_sample` and `phase_offset` ports are reserved interfaces in the current version and have not yet implemented actual reading and usage logic in the `processing()` function. The phase adjustment function will be improved in subsequent versions.
+> **Note**: `clk_sample` and `phase_offset` are legacy interfaces. `phase_offset` has been removed; sampling instants now come exclusively from the CDR `sampling_trigger`. Section 2.3/2.4 below is historical.
 
 **Step 5 - Decision Logic Application**:
 - If `resolution = 0`: Standard threshold decision
-- If `resolution > 0`: Fuzzy decision mechanism
+- If `resolution > 0`: Fuzzy decision mechanism around the effective threshold
 
 **Step 6 - Output Generation**: Convert the decision result to digital output, supporting both TDF and DE domains.
 
@@ -255,9 +258,9 @@ This noise is superimposed on the differential signal, constituting device-level
 
 Combining the above processes, the input-to-output transfer function of the sampler can be expressed as:
 ```
-data_out = f(Vdiff, phase_offset, parameters)
+data_out = f(Vdiff, trigger, parameters)
 where: Vdiff = (inp - inn) + offset.value + noise_sample
-Decision threshold: V_th = threshold
+Decision threshold: V_th = threshold or ±vref_cmd (dynamic)
 ```
 This equivalent relationship corresponds to the design principles mentioned in Chapter 1 and provides the foundation for subsequent BER analysis.
 
@@ -267,45 +270,38 @@ The core function of the sampler is digital decision based on input differential
 
 #### 3.2.1 Standard Decision Mechanism (resolution = 0)
 
-Uses dual-threshold hysteresis decision to implement Schmitt trigger effect:
+Uses a single-threshold comparator with no hysteresis (2026-10: the Schmitt dead-band was removed):
 
 ```
-Threshold Definition:
-- threshold_high = threshold + hysteresis/2
-- threshold_low = threshold - hysteresis/2
-
 Decision Logic:
-if (Vdiff > threshold_high):
-    output = 1
-elif (Vdiff < threshold_low):
-    output = 0
-else:
-    output = previous_output  // Hysteresis zone: maintain state
+output = (Vdiff > thr) ? 1 : 0     // thr = static threshold or dynamic Vref
 ```
 
 #### 3.2.2 Fuzzy Decision Mechanism (resolution > 0)
 
-Introduces a fuzzy decision zone to simulate comparator metastability behavior:
+Introduces a fuzzy decision zone **around the effective threshold** to simulate comparator metastability behavior:
 
 ```
 Decision Region Division:
-┌─────────────────────────────────┐
-│  Vdiff >= +resolution  → 1      │  Determined zone (high)
-├─────────────────────────────────┤
-│  |Vdiff| < resolution  → random │  Fuzzy zone
-├─────────────────────────────────┤
-│  Vdiff <= -resolution  → 0      │  Determined zone (low)
-└─────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Vdiff - thr >= +resolution  → 1         │  Determined zone (high)
+├──────────────────────────────────────────┤
+│  |Vdiff - thr| < resolution  → random    │  Fuzzy zone
+├──────────────────────────────────────────┤
+│  Vdiff - thr <= -resolution  → 0         │  Determined zone (low)
+└──────────────────────────────────────────┘
 
 Decision Algorithm:
-if (abs(Vdiff) >= resolution):
-    output = (Vdiff > 0) ? 1 : 0
+if (abs(Vdiff - thr) >= resolution):
+    output = (Vdiff > thr) ? 1 : 0
 else:
     // Fuzzy zone: random decision (Bernoulli distribution)
     output = random_bernoulli(0.5, seed)
 ```
 
 ### 3.3 Parameter Validation and Error Handling Mechanism
+
+> **2026-10 note**: the `hysteresis >= resolution` conflict check was **removed** together with hysteresis from the decision path. The only remaining constructor validation is `phase_source ∈ {"clock", "phase"}` (retained for interface compatibility). The subsections below are historical design notes for the retired validation flow.
 
 To ensure the validity of simulation results, the sampler module implements strict parameter validation mechanisms. Once parameter settings are unreasonable (e.g., `hysteresis ≥ resolution`), the BER calculated based on these parameters will have no physical meaning, so a forced termination strategy is adopted to avoid misleading results.
 

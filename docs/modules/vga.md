@@ -54,10 +54,11 @@ Where ωz = 2π×fz (zero angular frequency), ωp = 2π×fp (pole angular freque
 | `in_p` | Input | double | Differential input positive terminal |
 | `in_n` | Input | double | Differential input negative terminal |
 | `vdd` | Input | double | Supply voltage (for PSRR modeling) |
+| `gain_cmd_de` | Input | double (DE bridge) | AGC gain command from AdaptionDe (linear); when > 0 it scales the fixed transfer function by `cmd/dc_gain`, when ≤ 0 the static `dc_gain` is used |
 | `out_p` | Output | double | Differential output positive terminal |
 | `out_n` | Output | double | Differential output negative terminal |
 
-> **Important**: The `vdd` port must be connected even when PSRR functionality is not enabled (SystemC-AMS requires all ports to be connected).
+> **Important**: The `vdd` port must be connected even when PSRR functionality is not enabled (SystemC-AMS requires all ports to be connected). `gain_cmd_de` must also be connected (drive 0 when AGC is unused) — AGC writes the linear gain, not the raw `dc_gain` field.
 
 ### 2.2 Parameter Configuration (RxVgaParams)
 

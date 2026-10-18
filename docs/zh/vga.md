@@ -54,10 +54,11 @@ H(s) = dc_gain × ∏(1 + s/ωz_i) / ∏(1 + s/ωp_j)
 | `in_p` | 输入 | double | 差分输入正端 |
 | `in_n` | 输入 | double | 差分输入负端 |
 | `vdd` | 输入 | double | 电源电压（PSRR建模用） |
+| `gain_cmd_de` | 输入 | double（DE桥） | 来自 AdaptionDe 的 AGC 增益命令（线性）；>0 时按 `cmd/dc_gain` 缩放固定传递函数，≤0 时使用静态 `dc_gain` |
 | `out_p` | 输出 | double | 差分输出正端 |
 | `out_n` | 输出 | double | 差分输出负端 |
 
-> **重要**：即使不启用PSRR功能，`vdd`端口也必须连接（SystemC-AMS要求所有端口均需连接）。
+> **重要**：即使不启用PSRR功能，`vdd`端口也必须连接（SystemC-AMS要求所有端口均需连接）。`gain_cmd_de` 也必须连接（不用 AGC 时驱动 0）——AGC 写入的是线性增益，而不是直接改 `dc_gain` 字段。
 
 ### 2.2 参数配置（RxVgaParams）
 

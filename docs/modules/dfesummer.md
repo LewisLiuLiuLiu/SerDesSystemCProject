@@ -42,7 +42,7 @@ The equalized output is: `v_eq = v_main - v_fb`
 - **Bit Mapping Modes**: Supports ±1 mapping (recommended, more robust against DC offset) and 0/1 mapping
 - **Adaptive Interface**: Receives real-time tap updates from the Adaption module through DE→TDF bridging ports
 - **Soft Saturation Mechanism**: Optional output limiting to prevent signal distortion caused by over-compensation
-- **Historical Bit Interface**: Receives externally maintained historical decision array through data_in port, simplifying module responsibilities
+- **Historical Bit Interface**: Receives the current decision as a scalar `data_in` (0/1); the module maintains the b[n-1]…b[n-N] history internally, shifted once per `data_strobe` (CDR `data_trigger`, 1/UI)
 
 ### 1.3 Version History
 
@@ -64,7 +64,8 @@ The equalized output is: `v_eq = v_main - v_fb`
 |-----------|-----------|------|-------------|
 | `in_p` | Input | double | Differential input positive (from VGA) |
 | `in_n` | Input | double | Differential input negative (from VGA) |
-| `data_in` | Input | vector&lt;int&gt; | Historical decision data array |
+| `data_in` | Input | double | Current decision bit, scalar 0/1 (from Sampler); multiplexed with `data_strobe` |
+| `data_strobe` | Input | bool | Data strobe from CDR `data_trigger` (1/UI); history FIFO shifts once per rising strobe |
 | `out_p` | Output | double | Differential output positive (to Sampler) |
 | `out_n` | Output | double | Differential output negative (to Sampler) |
 
@@ -74,10 +75,11 @@ The equalized output is: `v_eq = v_main - v_fb`
 |-----------|-----------|------|-------------|
 | `tap_coeffs_de` | Input | vector&lt;double&gt; | Tap coefficient updates from Adaption |
 
-> **About data_in Port**:
-> - Array length is determined by the length N of `tap_coeffs`
-> - `data_in[0]` is the most recent decision b[n-1], `data_in[1]` is b[n-2], ..., `data_in[N-1]` is b[n-N]
-> - Array is maintained and updated by RX top-level module or Sampler, DFE Summer only reads and does not modify
+> **About the data_in / data_strobe Ports (2026-10)**:
+> - `data_in` carries only the latest decision b[n-1] as a scalar (0 or 1); it is **not** an array
+> - The internal history is `[b[n-1], b[n-2], ..., b[n-N]]` and shifts **once per `data_strobe`**, not once per TDF step
+> - `data_strobe` must be the CDR `data_trigger` (1/UI, at the data-sampling instant); without a strobe the history and the feedback stay frozen
+> - Length consistency is guaranteed by `tap_coeffs.size()` at construction; there is no external array to validate per step
 
 ### 2.2 Parameter Configuration (RxDfeSummerParams)
 
@@ -138,16 +140,13 @@ Input reading → Enable check → Historical data validation → Feedback calcu
 
 **Step 2 - Enable Check**: If `enable=false`, directly pass input signals through common-mode synthesis to output (pass-through mode).
 
-**Step 3 - Historical Data Validation**: Read `data_in` array, validate if length equals `tap_count`. If mismatched:
-- Length insufficient: Pad with 0
-- Length excessive: Truncate
-- Warning log should be output
+**Step 3 - History Update (on strobe only)**: On a `data_strobe` rising event, read the scalar `data_in` (0/1) and shift the internal history FIFO once. Between strobes the history is unchanged, so the same decision is never inserted twice even at `ts = ui/10`.
 
-**Step 4 - Feedback Calculation**: Iterate through all taps, calculate total feedback voltage:
+**Step 4 - Feedback Calculation**: Iterate through all taps over the internal history, calculate total feedback voltage:
 ```cpp
 v_fb = 0.0;
 for (int k = 0; k < tap_count; k++) {
-    double bit_val = map(data_in[k], map_mode);  // Bit mapping
+    double bit_val = map(history[k], map_mode);  // Bit mapping, history[0] = b[n-1]
     v_fb += tap_coeffs[k] * bit_val * vtap;
 }
 ```
@@ -204,8 +203,8 @@ If current bit b[n] is directly used for current output feedback calculation, an
 
 **Avoidance Solution**:
 - Strictly use historical symbols b[n-k] (k≥1) for feedback calculation
-- `data_in` array mechanism naturally guarantees this: `data_in[0]` is at least b[n-1]
-- Array update is performed by external module after current UI decision completes, before next UI processing
+- The internal history FIFO guarantees this: `history[0]` is at least b[n-1]
+- The FIFO shifts only on the CDR data strobe, i.e. after the current UI decision is available and before the next UI's feedback is evaluated
 
 ### 3.4 Pass-through Mode Design
 
@@ -217,8 +216,8 @@ DFE Summer is equivalent to pass-through when any of the following conditions ar
 
 In pass-through mode:
 - `v_fb = 0`, output = input (after common-mode synthesis)
-- `data_in` array values do not affect output
-- But `data_in` should still maintain valid length for compatibility with subsequent adaptive enablement
+- `data_in` / `data_strobe` values do not affect output
+- `data_strobe` should still be connected to keep the history coherent if adaptation is enabled later
 
 ---
 
