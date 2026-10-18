@@ -10,6 +10,9 @@
 # The differential mapping for this 4-port fixture (interleaved by polarity):
 #   TX pair = physical ports 0/2, RX pair = physical ports 1/3
 #
+# For the paper-style A2 operating point (TX FFE + fixed phase + noise):
+#   scripts/run_ber_comparison.sh 100000 config/ts4_a2_ber_diff.json
+#
 # Usage: scripts/run_ber_comparison.sh [UI_COUNT] [extra --config overlay]
 # ============================================================================
 set -e
