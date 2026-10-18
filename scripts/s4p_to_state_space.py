@@ -122,6 +122,10 @@ def main():
                         help="Discretization timestep in seconds (default 1e-11)")
     parser.add_argument("--allow-e", action="store_true",
                         help="Allow the (unphysical) s-proportional fit term")
+    parser.add_argument("--active-inputs", default="",
+                        help="Active input physical ports (default: all modeled ports)")
+    parser.add_argument("--active-outputs", default="",
+                        help="Active output physical ports (default: all modeled ports)")
     args = parser.parse_args()
 
     logging.disable(logging.WARNING)
@@ -137,15 +141,27 @@ def main():
         if p >= nports_all:
             raise SystemExit(f"port {p} out of range (file has {nports_all})")
     n = len(ports)
+    active_in = ([int(p) for p in args.active_inputs.split(",")] if args.active_inputs
+                 else list(range(n)))
+    active_out = ([int(p) for p in args.active_outputs.split(",")] if args.active_outputs
+                  else list(range(n)))
+    for p in active_in + active_out:
+        if p < 0 or p >= n:
+            raise SystemExit(f"active port {p} outside modeled ports {ports} "
+                             "(indices are positions in the --ports list)")
     freq = nw.frequency.f
     s = 2j * np.pi * freq
     print(f"Touchstone: {args.touchstone}  ({nports_all} ports)")
-    print(f"Modeling ports {ports} -> {n} inputs x {n} outputs, order {args.order}/pair")
+    print(f"Modeling ports {ports} -> {n} x {n} matrix, order {args.order}/pair")
+    print(f"Active: inputs {active_in} (TX pair), outputs {active_out} (RX pair)")
 
-    pairs = [(m, i) for m in range(n) for i in range(n)]
+    # Fit only the pairs used by the active I/O sets (other rows/cols stay zero)
+    pairs = [(m, i) for m in active_out for i in active_in]
     blocks = []
     total_states = 0
     delays = []
+    delay_of = {}
+    dc_mag = {}
     d_in = np.zeros((n, n))
     print(f"\n{'pair':>10} {'delay_ns':>9} {'rel_rms':>9} {'medDB*':>7} {'states':>7}")
     print("-" * 50)
@@ -157,9 +173,28 @@ def main():
         blocks.append((m, i, A, B, C))
         total_states += A.shape[0]
         delays.append(r["delay"])
+        delay_of[(m, i)] = r["delay"]
+        dc_mag[(m, i)] = np.abs(H[0])
         d_in[m, i] = d
         print(f"S{ports[m]}{ports[i]:<8} {r['delay']*1e9:9.3f} {r['rel_rms']:9.2e} "
               f"{r['median_error_db']:7.2f} {A.shape[0]:7d}")
+
+    # C++ applies one delay per output, looked up at (output, active_inputs[0]).
+    # Use the *dominant* pair's delay for that key (e.g. the thru path rather
+    # than a weak FEXT pair); the other pairs into the same output differ by
+    # only a few tens of ps at <=1% of the signal amplitude.
+    if active_in:
+        for m in active_out:
+            candidates = [(dc_mag[(m, i)], i) for i in active_in if (m, i) in dc_mag]
+            if not candidates:
+                continue
+            _, dom_i = max(candidates)
+            key = (m, active_in[0])
+            if key in delay_of and abs(delay_of[key] - delay_of[(m, dom_i)]) > 1e-15:
+                delay_of[key] = delay_of[(m, dom_i)]
+                print(f"  [delay] output {m}: using dominant path ({m},{dom_i}) "
+                      f"delay {delay_of[key]*1e9:.3f} ns for the C++ lookup key {key}")
+        delays = [delay_of[(m, i)] for (m, i) in pairs]
 
     A_full = np.zeros((total_states, total_states))
     B_full = np.zeros((total_states, n))
@@ -203,8 +238,8 @@ def main():
             },
         },
         "port_config": {
-            "active_inputs": list(range(n)),
-            "active_outputs": list(range(n)),
+            "active_inputs": active_in,
+            "active_outputs": active_out,
         },
         "metadata": {
             "source": os.path.basename(args.touchstone),
