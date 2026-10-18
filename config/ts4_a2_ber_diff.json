@@ -456,5 +456,6 @@
       "snapshot_interval": 1e-06,
       "error_burst_threshold": 100
     }
-  }
+  },
+  "_note": "sample_point=0.18 is tuned for config/peters_ss_vf12_diff.json (frac delay 0.167 UI). The optimum phase shifts with the fractional part of the model delay: for config/peters_ss_channel_ts4.json (3.9606 ns, frac 0.606 UI) use ~0.65. Always sweep with scripts/ber_bathtub.py --sweep phase for a new model."
 }

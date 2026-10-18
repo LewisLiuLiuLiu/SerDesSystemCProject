@@ -1443,6 +1443,7 @@ class SParamModel:
         n_iter_res: int = 1,
         weight: Optional[np.ndarray] = None,
         weight_residues: bool = False,
+        force_e_zero: bool = False,
     ) -> 'SParamModel':
         """
         Columnwise Vector Fitting with shared poles (ex4b.m strategy).
@@ -1481,6 +1482,10 @@ class SParamModel:
             weight_residues: If True, also use `weight` in the per-column residue
                 least-squares (T-S4/A1). Default False keeps the historical
                 unweighted residue solve.
+            force_e_zero: Constrain the s-proportional e term to zero in every
+                column's residue solve (physically required for S-parameters;
+                prevents the C++ E feedthrough from amplifying the term at
+                small timesteps). Exported E matrices become zero.
 
         Returns:
             self
@@ -1594,6 +1599,7 @@ class SParamModel:
         logger.info(f"Phase 2: solving residues for {N_pairs} columns...")
         vf_res = VectorFitting(order=order, asymp=2)
         vf_res.poles = self.shared_poles.copy()
+        vf_res.force_e_zero = force_e_zero
 
         for k, (oi, ii) in enumerate(self.selected_pairs):
             rw = weight if weight_residues else None

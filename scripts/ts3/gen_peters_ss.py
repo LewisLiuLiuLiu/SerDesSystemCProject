@@ -67,6 +67,8 @@ def main():
     ap.add_argument("--s4p", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--fit-report", default=None)
+    ap.add_argument("--force-e-zero", action="store_true",
+                    help="Constrain the s-proportional e term to zero")
     args = ap.parse_args()
 
     scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -87,7 +89,8 @@ def main():
     model.to_differential()
     w = 1.0 / np.maximum(np.abs(H_ref), 1e-4)
     model.fit(order=ORDER, port_pairs=[(2, 1)], extract_delay=True,
-              fmax=FMAX, n_iter_poles=8, weight=w)
+              fmax=FMAX, n_iter_poles=8, weight=w,
+              force_e_zero=args.force_e_zero)
     model.summary()
 
     ss = model.to_state_space()

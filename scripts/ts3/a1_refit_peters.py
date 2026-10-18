@@ -76,6 +76,9 @@ def main():
     ap.add_argument("--boost-fc-ghz", type=float, default=BOOST_FC / 1e9)
     ap.add_argument("--discrete-dt-ps", type=float, default=2.0,
                     help="ZOH discrete export timestep (must match the TB timestep)")
+    ap.add_argument("--force-e-zero", action="store_true",
+                    help="Constrain the s-proportional e term to zero "
+                         "(physical for S-parameters; exported E becomes 0)")
     args = ap.parse_args()
 
     import skrf as rf
@@ -102,7 +105,8 @@ def main():
     model.s_active[:, 1, 0] = H_comp        # SDD21 (output 2 <- input 1, 0-based)
     model.fit(order=args.order, port_pairs=[(2, 1)], extract_delay=False,
               fmax=F_MAX, n_iter_poles=args.n_iter_poles,
-              weight=weight, weight_residues=True)
+              weight=weight, weight_residues=True,
+              force_e_zero=args.force_e_zero)
     model.summary()
 
     ss = model.to_state_space()
