@@ -457,5 +457,5 @@
       "error_burst_threshold": 100
     }
   },
-  "_note": "sample_point=0.18 is tuned for config/peters_ss_vf12_diff.json (frac delay 0.167 UI). The optimum phase shifts with the fractional part of the model delay: for config/peters_ss_channel_ts4.json (3.9606 ns, frac 0.606 UI) use ~0.65. Always sweep with scripts/ber_bathtub.py --sweep phase for a new model."
+  "_note": "sample_point is model-specific: vf12 diff (frac delay 0.167 UI) ~0.18; ts4 model (frac 0.606 UI) measured bathtub optimum ~0.85 (BER 2.6e-3 at sigma=0.35, 100k UI). Sweep with scripts/ber_bathtub.py --sweep phase for a new model. The e=0 variant (peters_ss_channel_ts4_e0.json) has a shifted optimum (~0.92) and ~1.8x higher BER at sigma=0.35; keep the fitted e for this model, e=0 only for exports where E is known to be a numerical artifact."
 }
