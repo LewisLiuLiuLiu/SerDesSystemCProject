@@ -560,8 +560,7 @@ void ChannelSParamTdf::extract_active_matrices() {
         int src_row = m_port_config.active_outputs[i] + 1;
         for (int j = 0; j < n_active_in; ++j) {
             int src_col = m_port_config.active_inputs[j] + 1;
-            m_active_ss.E(i + 1, j + 1) = m_full_model.state_space.E(src_row, src_col);
-        }
+            m_active_ss.E(i + 1, j + 1) = m_full_model.state_space.E(src_row, src_col);        }
     }
     
     // T-S4: extract the active submatrices of the optional discrete realization.
@@ -626,6 +625,33 @@ void ChannelSParamTdf::extract_active_matrices() {
     // T-S3 A2 fix: initialize derivative history for the E-term feedthrough
     m_u_prev.assign(static_cast<size_t>(n_active_in), 0.0);
     m_u_prev_valid = false;
+
+    // ---- Transport delay lookup (2026-10) ----
+    // full_model.delay_s is ordered like port_pairs (off-diagonal pairs only).
+    // Use the main driven path (active_output, active_inputs[0]) for each output.
+    m_active_delays.assign(static_cast<size_t>(n_active_out), 0.0);
+    m_delay_lines.clear();
+    m_delay_pos.clear();
+    if (!m_full_model.delays.empty() && !m_full_model.port_pairs.empty()
+        && !m_port_config.active_inputs.empty()) {
+        const int main_in = m_port_config.active_inputs[0];
+        for (int i = 0; i < n_active_out; ++i) {
+            const int out_port = m_port_config.active_outputs[i];
+            for (size_t k = 0; k < m_full_model.port_pairs.size()
+                               && k < m_full_model.delays.size(); ++k) {
+                if (m_full_model.port_pairs[k].first == out_port
+                    && m_full_model.port_pairs[k].second == main_in) {
+                    m_active_delays[i] = m_full_model.delays[k];
+                    break;
+                }
+            }
+        }
+        std::cout << "[DEBUG]   Delays (main path):";
+        for (double d : m_active_delays) {
+            std::cout << " " << d * 1e9 << "ns";
+        }
+        std::cout << std::endl;
+    }
 }
 
 void ChannelSParamTdf::process_state_space_mimo() {
@@ -687,6 +713,33 @@ void ChannelSParamTdf::process_state_space_mimo() {
                 y(i + 1) += acc;
             }
             for (int j = 0; j < n_in; ++j) m_u_prev[j] = u(j + 1);
+        }
+    }
+
+    // Apply per-output transport delay (2026-10). The ring buffer is sized on
+    // the first call (timestep is only resolved by then) and holds
+    // round(delay/dt) samples; reading at the advanced position yields the
+    // value written exactly that many steps ago.
+    if (!m_active_delays.empty()) {
+        if (m_delay_lines.empty()) {
+            const double dt_s = get_timestep().to_seconds();
+            m_delay_lines.resize(static_cast<size_t>(n_out));
+            m_delay_pos.assign(static_cast<size_t>(n_out), 0);
+            for (int i = 0; i < n_out; ++i) {
+                long n = 0;
+                if (dt_s > 0.0) {
+                    n = std::lround(m_active_delays[static_cast<size_t>(i)] / dt_s);
+                }
+                m_delay_lines[static_cast<size_t>(i)]
+                    .assign(static_cast<size_t>(std::max<long>(n, 0)) + 1, 0.0);
+            }
+        }
+        for (int i = 0; i < n_out; ++i) {
+            auto& line = m_delay_lines[static_cast<size_t>(i)];
+            size_t& pos = m_delay_pos[static_cast<size_t>(i)];
+            line[pos] = y(i + 1);
+            pos = (pos + 1) % line.size();
+            y(i + 1) = line[pos];
         }
     }
 

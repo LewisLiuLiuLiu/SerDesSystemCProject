@@ -194,6 +194,16 @@ private:
     // E-term feedthrough support (T-S3 A2 fix: E was parsed but ignored)
     std::vector<double> m_u_prev;   // previous input vector for E*(du/dt)
     bool m_u_prev_valid;            // skip derivative on first call (avoid startup spike)
+
+    // Transport delay per active output (2026-10): full_model.delay_s was
+    // parsed but never applied, so the simulated channel had ~0 delay while
+    // real fixtures carry ~4 ns. Delay is taken from the port_pairs entry
+    // (active_output, active_inputs[0]) — the main driven path. Per-input skew
+    // within the MIMO mix is not separable from the shared state vector and is
+    // intentionally left as a documented approximation.
+    std::vector<double> m_active_delays;              // seconds, per active output
+    std::vector<std::vector<double>> m_delay_lines;   // ring buffers, per output
+    std::vector<size_t> m_delay_pos;                  // write position per output
     
     // Initialization flags
     bool m_config_loaded;

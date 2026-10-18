@@ -33,6 +33,18 @@
 using namespace serdes;
 
 // ============================================================================
+// Constant zero source (quiet unused MIMO inputs)
+// ============================================================================
+class ZeroSource : public sca_tdf::sca_module {
+public:
+    sca_tdf::sca_out<double> out;
+    ZeroSource(sc_core::sc_module_name nm)
+        : sca_tdf::sca_module(nm), out("out") {}
+    void set_attributes() override { out.set_rate(1); }
+    void processing() override { out.write(0.0); }
+};
+
+// ============================================================================
 // Signal Recorder for Channel Verification
 // ============================================================================
 
@@ -154,10 +166,12 @@ SC_MODULE(ChannelSparamTestbench) {
     WaveGenerationTdf* wave_gen;
     ChannelSParamTdf* channel;
     ChannelSignalRecorder* recorder;
+    ZeroSource* zero_src;            // 未用 MIMO 输入的静默源
     
     // Signals
     sca_tdf::sca_signal<double> sig_input;
     sca_tdf::sca_signal<double> sig_output;
+    sca_tdf::sca_signal<double> sig_zero;                    // 静默未用输入
     std::vector<sca_tdf::sca_signal<double>*> sig_extra_out;  // MIMO 未用输出占位
     
     // Parameters
@@ -316,18 +330,24 @@ SC_MODULE(ChannelSparamTestbench) {
         
         // Create recorder
         recorder = new ChannelSignalRecorder("recorder", m_sample_rate);
+        zero_src = new ZeroSource("zero_src");
+        zero_src->out(sig_zero);
         
-        // Connect signals
+        // Connect signals (2026-10 port fix for multi-port state-space models):
+        //   - drive the first active input; unused inputs are quiet (0 V)
+        //   - record the SECOND physical port (the thru / S21 path) when the
+        //     model has >= 2 outputs; single-output models keep out[0]
+        const bool use_thru = (m_ext_params.method == ChannelMethod::STATE_SPACE)
+                              && channel->out.size() >= 2;
+        const unsigned rec_idx = use_thru ? 1u : 0u;
         wave_gen->out(sig_input);
         channel->in[0](sig_input);
-        channel->out[0](sig_output);
-        // MIMO configs (e.g. 2x2 state-space): bind all remaining ports.
-        // Unused inputs share the excitation; each unused output needs its own
-        // signal (a TDF signal can have only one writer). 2026-10.
         for (unsigned i = 1; i < channel->in.size(); ++i) {
-            channel->in[i](sig_input);
+            channel->in[i](sig_zero);
         }
-        for (unsigned i = 1; i < channel->out.size(); ++i) {
+        channel->out[rec_idx](sig_output);
+        for (unsigned i = 0; i < channel->out.size(); ++i) {
+            if (i == rec_idx) continue;
             auto* extra = new sca_tdf::sca_signal<double>(
                 (std::string("sig_output_") + std::to_string(i)).c_str());
             sig_extra_out.push_back(extra);
